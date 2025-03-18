@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useSocket } from '@/contexts/SocketContext';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from 'lucide-react';
+import { Mic, MicOff, Phone, Video, VideoOff } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useToast } from '@/components/ui/use-toast';
 
 interface VideoCallProps {
   callData: any;
@@ -15,42 +16,70 @@ const VideoCall = ({ callData, onEndCall }: VideoCallProps) => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const { endCall } = useSocket();
+  const { toast } = useToast();
 
-  // For demo purposes, we'll use pre-recorded video files
   useEffect(() => {
-    // Get local video stream
-    navigator.mediaDevices
-      .getUserMedia({ video: true, audio: true })
-      .then((stream) => {
+    const setupMediaDevices = async () => {
+      try {
+        console.log('Setting up media devices...');
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: true, 
+          audio: true 
+        });
+        
+        console.log('Media stream obtained:', stream);
         setLocalStream(stream);
+        
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
         
-        // Mock remote video with a delay
+        // For demo purposes, we'll simulate a remote stream after a delay
         setTimeout(() => {
           if (remoteVideoRef.current) {
-            // In a real app, this would come from WebRTC connection
-            remoteVideoRef.current.srcObject = stream;
+            // Clone the stream for the demo
+            const clonedTracks = stream.getTracks().map(track => track.clone());
+            const mockRemoteStream = new MediaStream(clonedTracks);
+            setRemoteStream(mockRemoteStream);
+            remoteVideoRef.current.srcObject = mockRemoteStream;
+            
+            toast({
+              title: "Call Connected",
+              description: `You are now connected with ${callData?.caller?.name || callData?.receiver?.name}`,
+            });
           }
-        }, 1000);
-      })
-      .catch((err) => {
+        }, 1500);
+      } catch (err) {
         console.error('Error accessing media devices:', err);
-      });
+        toast({
+          title: "Camera/Microphone Error",
+          description: "Could not access your camera or microphone. Please check permissions.",
+          variant: "destructive"
+        });
+      }
+    };
+
+    setupMediaDevices();
 
     return () => {
       // Clean up
       if (localStream) {
-        localStream.getTracks().forEach((track) => {
+        localStream.getTracks().forEach(track => {
+          track.stop();
+        });
+      }
+      
+      if (remoteStream) {
+        remoteStream.getTracks().forEach(track => {
           track.stop();
         });
       }
     };
-  }, []);
+  }, [callData, toast]);
 
   const toggleAudio = () => {
     if (localStream) {
@@ -101,7 +130,7 @@ const VideoCall = ({ callData, onEndCall }: VideoCallProps) => {
         
         {/* Call info overlay */}
         <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm text-white px-4 py-2 rounded-full text-sm">
-          Call with {otherPartyName}
+          Call with {otherPartyName || "Unknown"}
         </div>
         
         {/* Local video (picture-in-picture) */}

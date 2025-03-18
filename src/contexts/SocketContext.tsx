@@ -1,4 +1,3 @@
-
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
@@ -172,20 +171,20 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 
   const sendMessage = (to: string, message: string) => {
     if (socket && isConnected) {
+      const messageId = `msg-${Date.now()}-${Math.random()}`;
+      
       const messageData = {
+        id: messageId,
         from: user?.id,
         to,
         message,
         timestamp: new Date().toISOString()
       };
       
+      // Send the actual message to the recipient
       socket.emit('message', messageData);
       
-      // Also emit to self for mock behavior
-      socket.emit('message', {
-        ...messageData,
-        fromSelf: true
-      });
+      // No need to emit to self anymore as we're handling this in the ChatInterface
       
       return true;
     }

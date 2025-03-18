@@ -57,20 +57,33 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
     if (!socket) return;
     
     const handleIncomingMessage = (data: any) => {
+      // Only process messages that are meant for this conversation
+      // and avoid duplicates with the fromSelf flag
       if ((data.from === recipientId && data.to === user?.id) || 
-          (data.from === user?.id && data.to === recipientId)) {
+          (data.from === user?.id && data.to === recipientId && data.fromSelf)) {
         
-        setMessages(prev => [
-          ...prev, 
-          {
-            id: `msg-${Date.now()}-${Math.random()}`,
-            from: data.from,
-            to: data.to,
-            message: data.message,
-            timestamp: data.timestamp,
-            fromSelf: data.fromSelf || data.from === user?.id
-          }
-        ]);
+        // Check if the message already exists in our array
+        const messageExists = messages.some(msg => 
+          msg.id === data.id || 
+          (msg.message === data.message && 
+           msg.timestamp === data.timestamp && 
+           msg.from === data.from && 
+           msg.to === data.to)
+        );
+        
+        if (!messageExists) {
+          setMessages(prev => [
+            ...prev, 
+            {
+              id: data.id || `msg-${Date.now()}-${Math.random()}`,
+              from: data.from,
+              to: data.to,
+              message: data.message,
+              timestamp: data.timestamp,
+              fromSelf: data.from === user?.id
+            }
+          ]);
+        }
       }
     };
     
@@ -79,7 +92,7 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
     return () => {
       socket.off('message', handleIncomingMessage);
     };
-  }, [socket, recipientId, user?.id]);
+  }, [socket, recipientId, user?.id, messages]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -91,6 +104,19 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
   const handleSendMessage = () => {
     if (!message.trim() || !user) return;
     
+    const newMessageData = {
+      id: `msg-${Date.now()}-${Math.random()}`,
+      from: user.id,
+      to: recipientId,
+      message: message.trim(),
+      timestamp: new Date().toISOString(),
+      fromSelf: true
+    };
+    
+    // Add message to state immediately
+    setMessages(prev => [...prev, newMessageData]);
+    
+    // Send message through socket
     sendMessage(recipientId, message.trim());
     setMessage('');
   };
