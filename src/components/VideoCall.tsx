@@ -19,6 +19,7 @@ const VideoCall = ({ callData, onEndCall }: VideoCallProps) => {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [callEnded, setCallEnded] = useState(false);
   const { endCall } = useSocket();
   const { toast } = useToast();
 
@@ -40,7 +41,7 @@ const VideoCall = ({ callData, onEndCall }: VideoCallProps) => {
         
         // For demo purposes, we'll simulate a remote stream after a delay
         setTimeout(() => {
-          if (remoteVideoRef.current) {
+          if (remoteVideoRef.current && !callEnded) {
             // Clone the stream for the demo
             const clonedTracks = stream.getTracks().map(track => track.clone());
             const mockRemoteStream = new MediaStream(clonedTracks);
@@ -67,6 +68,7 @@ const VideoCall = ({ callData, onEndCall }: VideoCallProps) => {
 
     return () => {
       // Clean up
+      setCallEnded(true);
       if (localStream) {
         localStream.getTracks().forEach(track => {
           track.stop();
@@ -102,8 +104,22 @@ const VideoCall = ({ callData, onEndCall }: VideoCallProps) => {
   };
 
   const handleEndCall = () => {
+    setCallEnded(true);
+    // Stop all tracks
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    if (remoteStream) {
+      remoteStream.getTracks().forEach(track => track.stop());
+    }
+    
     endCall();
     onEndCall();
+    
+    toast({
+      title: "Call Ended",
+      description: "The video call has ended.",
+    });
   };
 
   const otherPartyName = callData?.caller?.id === callData?.receiver?.id

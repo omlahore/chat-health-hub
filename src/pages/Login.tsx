@@ -36,16 +36,20 @@ const Login = () => {
     }
   };
 
-  // Sample credentials helper
-  const setDemoCredentials = (selectedRole: 'patient' | 'doctor') => {
-    if (selectedRole === 'patient') {
-      setUsername('patient');
-      setPassword('password');
-    } else {
-      setUsername('doctor');
-      setPassword('password');
+  // Improved demo credentials helper - directly logs in
+  const loginWithDemoCredentials = async (selectedRole: 'patient' | 'doctor') => {
+    setIsLoading(true);
+    const demoUsername = selectedRole === 'patient' ? 'patient' : 'doctor';
+    const demoPassword = 'password';
+    
+    try {
+      const success = await login(demoUsername, demoPassword, selectedRole);
+      if (success) {
+        navigate(selectedRole === 'patient' ? '/patient-dashboard' : '/doctor-dashboard');
+      }
+    } finally {
+      setIsLoading(false);
     }
-    setRole(selectedRole);
   };
 
   return (
@@ -121,22 +125,24 @@ const Login = () => {
               </Button>
               
               <div className="text-sm text-center text-slate-500">
-                <span>Demo credentials: </span>
-                <button 
-                  type="button" 
-                  onClick={() => setDemoCredentials('patient')}
-                  className="text-medilink-primary hover:underline mx-1"
+                <span>Demo login: </span>
+                <Button 
+                  type="button"
+                  variant="link"
+                  onClick={() => loginWithDemoCredentials('patient')}
+                  className="text-medilink-primary p-0 h-auto mx-1"
                 >
                   Patient
-                </button>
+                </Button>
                 <span>or</span>
-                <button 
-                  type="button" 
-                  onClick={() => setDemoCredentials('doctor')}
-                  className="text-medilink-primary hover:underline mx-1"
+                <Button 
+                  type="button"
+                  variant="link"
+                  onClick={() => loginWithDemoCredentials('doctor')}
+                  className="text-medilink-primary p-0 h-auto mx-1"
                 >
                   Doctor
-                </button>
+                </Button>
               </div>
             </CardFooter>
           </form>

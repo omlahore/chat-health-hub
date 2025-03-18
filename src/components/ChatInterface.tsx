@@ -5,17 +5,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Paperclip, Send } from 'lucide-react';
+import { Send, File, Image } from 'lucide-react';
 import { motion } from 'framer-motion';
-
-interface Message {
-  id: string;
-  from: string;
-  to: string;
-  message: string;
-  timestamp: string;
-  fromSelf?: boolean;
-}
+import FileShareButton from './FileShareButton';
+import StatusIndicator from './StatusIndicator';
+import { Message, Attachment } from '@/types';
 
 interface ChatInterfaceProps {
   recipientId: string;
@@ -25,7 +19,7 @@ interface ChatInterfaceProps {
 const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
-  const { sendMessage, socket } = useSocket();
+  const { sendMessage, socket, userStatuses, chatHistory } = useSocket();
   const { user } = useAuth();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
@@ -56,20 +50,34 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
   useEffect(() => {
     if (!socket) return;
     
+    // Filter chat history for this conversation
+    const relevantMessages = chatHistory.filter(
+      msg => (msg.from === recipientId && msg.to === user?.id) ||
+             (msg.from === user?.id && msg.to === recipientId)
+    );
+    
+    if (relevantMessages.length > 0) {
+      // Merge with existing messages, avoiding duplicates
+      const existingIds = new Set(messages.map(m => m.id));
+      const newMessages = relevantMessages.filter(msg => !existingIds.has(msg.id));
+      
+      if (newMessages.length > 0) {
+        setMessages(prev => [...prev, ...newMessages]);
+      }
+    }
+  }, [socket, recipientId, user?.id, messages, chatHistory]);
+
+  // Listen for real-time message updates
+  useEffect(() => {
+    if (!socket) return;
+    
     const handleIncomingMessage = (data: any) => {
       // Only process messages that are meant for this conversation
-      // and avoid duplicates with the fromSelf flag
       if ((data.from === recipientId && data.to === user?.id) || 
-          (data.from === user?.id && data.to === recipientId && data.fromSelf)) {
+          (data.from === user?.id && data.to === recipientId)) {
         
         // Check if the message already exists in our array
-        const messageExists = messages.some(msg => 
-          msg.id === data.id || 
-          (msg.message === data.message && 
-           msg.timestamp === data.timestamp && 
-           msg.from === data.from && 
-           msg.to === data.to)
-        );
+        const messageExists = messages.some(msg => msg.id === data.id);
         
         if (!messageExists) {
           setMessages(prev => [
@@ -80,7 +88,8 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
               to: data.to,
               message: data.message,
               timestamp: data.timestamp,
-              fromSelf: data.from === user?.id
+              fromSelf: data.from === user?.id,
+              attachments: data.attachments
             }
           ]);
         }
@@ -104,18 +113,6 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
   const handleSendMessage = () => {
     if (!message.trim() || !user) return;
     
-    const newMessageData = {
-      id: `msg-${Date.now()}-${Math.random()}`,
-      from: user.id,
-      to: recipientId,
-      message: message.trim(),
-      timestamp: new Date().toISOString(),
-      fromSelf: true
-    };
-    
-    // Add message to state immediately
-    setMessages(prev => [...prev, newMessageData]);
-    
     // Send message through socket
     sendMessage(recipientId, message.trim());
     setMessage('');
@@ -125,6 +122,44 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+    }
+  };
+
+  // Get recipient status
+  const recipientStatus = userStatuses[recipientId] || 'offline';
+
+  // Render attachment
+  const renderAttachment = (attachment: Attachment) => {
+    if (attachment.type === 'image') {
+      return (
+        <a href={attachment.url} target="_blank" rel="noopener noreferrer" className="block mt-2">
+          <img 
+            src={attachment.url} 
+            alt={attachment.name} 
+            className="max-w-[200px] max-h-[200px] rounded-lg object-cover"
+          />
+          <div className="text-xs mt-1 opacity-80">{attachment.name}</div>
+        </a>
+      );
+    } else {
+      return (
+        <a 
+          href={attachment.url} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="flex items-center mt-2 bg-slate-100 dark:bg-slate-700 p-2 rounded-md hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+        >
+          <File className="h-5 w-5 mr-2 flex-shrink-0" />
+          <div className="overflow-hidden">
+            <div className="text-sm font-medium truncate">{attachment.name}</div>
+            {attachment.size && (
+              <div className="text-xs opacity-70">
+                {(attachment.size / 1024).toFixed(1)} KB
+              </div>
+            )}
+          </div>
+        </a>
+      );
     }
   };
 
@@ -138,8 +173,8 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
         <div className="ml-3">
           <h3 className="font-medium">{recipientName}</h3>
           <div className="flex items-center">
-            <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
-            <span className="text-xs text-slate-500">Online</span>
+            <StatusIndicator status={recipientStatus} size="sm" showTooltip={false} />
+            <span className="text-xs text-slate-500 ml-2 capitalize">{recipientStatus}</span>
           </div>
         </div>
       </div>
@@ -166,6 +201,17 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
                   }`}
                 >
                   <p className="text-sm">{msg.message}</p>
+                  
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div className={isFromSelf ? 'text-white' : 'text-slate-800'}>
+                      {msg.attachments.map(attachment => (
+                        <div key={attachment.id}>
+                          {renderAttachment(attachment)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
                   <div className={`text-xs mt-1 ${isFromSelf ? 'text-blue-100' : 'text-slate-500'}`}>
                     {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
@@ -185,14 +231,7 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
       {/* Message input */}
       <div className="p-4 border-t border-slate-100">
         <div className="flex items-center space-x-2">
-          <Button 
-            variant="outline" 
-            size="icon" 
-            className="rounded-full h-10 w-10 flex-shrink-0"
-            type="button"
-          >
-            <Paperclip className="h-5 w-5 text-slate-500" />
-          </Button>
+          <FileShareButton recipientId={recipientId} />
           
           <Input
             placeholder="Type your message..."

@@ -1,7 +1,9 @@
+
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { useToast } from "@/components/ui/use-toast";
+import { Message, Session, Attachment, CallData } from '@/types';
 
 // Mock socket.io client functionality without a real server
 class MockSocket {
@@ -72,13 +74,22 @@ const createMockSocket = () => new MockSocket() as unknown as Socket;
 interface SocketContextType {
   socket: Socket | null;
   isConnected: boolean;
-  sendMessage: (to: string, message: string) => void;
-  initiateCall: (to: string) => void;
-  acceptCall: (callId: string) => void;
-  rejectCall: (callId: string) => void;
-  endCall: () => void;
-  activeCall: any | null;
-  incomingCall: any | null;
+  sendMessage: (to: string, message: string, attachments?: Attachment[]) => boolean;
+  initiateCall: (to: string) => string | null;
+  acceptCall: (callId: string) => boolean;
+  rejectCall: (callId: string) => boolean;
+  endCall: () => boolean;
+  scheduleSession: (session: Session) => boolean;
+  updateSessionStatus: (sessionId: string, status: Session['status']) => boolean;
+  shareFile: (to: string, file: File) => Promise<boolean>;
+  activeCall: CallData | null;
+  incomingCall: CallData | null;
+  userStatuses: Record<string, 'online' | 'offline' | 'busy'>;
+  sessionHistory: Session[];
+  chatHistory: Message[];
+  notifications: { id: string; title: string; message: string; read: boolean; timestamp: string }[];
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: () => void;
 }
 
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
@@ -86,10 +97,53 @@ const SocketContext = createContext<SocketContextType | undefined>(undefined);
 export const SocketProvider = ({ children }: { children: ReactNode }) => {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [activeCall, setActiveCall] = useState<any | null>(null);
-  const [incomingCall, setIncomingCall] = useState<any | null>(null);
+  const [activeCall, setActiveCall] = useState<CallData | null>(null);
+  const [incomingCall, setIncomingCall] = useState<CallData | null>(null);
+  const [sessionHistory, setSessionHistory] = useState<Session[]>([]);
+  const [chatHistory, setChatHistory] = useState<Message[]>([]);
+  const [userStatuses, setUserStatuses] = useState<Record<string, 'online' | 'offline' | 'busy'>>({});
+  const [notifications, setNotifications] = useState<{ id: string; title: string; message: string; read: boolean; timestamp: string }[]>([]);
   const { user } = useAuth();
   const { toast } = useToast();
+
+  // Initialize with mock data
+  useEffect(() => {
+    if (user) {
+      // Add some mock sessions for demo
+      setSessionHistory([
+        {
+          id: 'session-1',
+          doctorId: 'd1',
+          patientId: 'p1',
+          doctorName: 'Dr. Jane Wilson',
+          patientName: 'John Doe',
+          scheduledAt: new Date(Date.now() + 86400000).toISOString(), // tomorrow
+          duration: 30,
+          status: 'scheduled',
+          type: 'video'
+        },
+        {
+          id: 'session-2',
+          doctorId: 'd1',
+          patientId: 'p1',
+          doctorName: 'Dr. Jane Wilson',
+          patientName: 'John Doe',
+          scheduledAt: new Date(Date.now() - 86400000).toISOString(), // yesterday
+          duration: 45,
+          status: 'completed',
+          type: 'chat',
+          notes: 'Followup consultation regarding medication.'
+        }
+      ]);
+
+      // Set mock user statuses
+      setUserStatuses({
+        'd1': 'online',
+        'p1': 'online',
+        'p2': 'offline'
+      });
+    }
+  }, [user]);
 
   useEffect(() => {
     let socketInstance: Socket;
@@ -104,32 +158,237 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         
         // Join room with user ID
         socketInstance.emit('join', { userId: user.id, userRole: user.role });
+        
+        // Update user status to online
+        if (user.id) {
+          setUserStatuses(prev => ({
+            ...prev,
+            [user.id]: 'online'
+          }));
+        }
+        
+        // Broadcast status change
+        socketInstance.emit('user:status', { userId: user.id, status: 'online' });
       });
       
       socketInstance.on('disconnect', () => {
         console.log('Socket disconnected');
         setIsConnected(false);
+        
+        // Update user status to offline
+        if (user.id) {
+          setUserStatuses(prev => ({
+            ...prev,
+            [user.id]: 'offline'
+          }));
+        }
       });
       
       socketInstance.on('message', (data) => {
         console.log('Message received:', data);
-        // This would be handled by the chat component
+        
+        // Add to chat history
+        setChatHistory(prev => [
+          ...prev.filter(msg => msg.id !== data.id), // remove duplicates
+          {
+            ...data,
+            fromSelf: data.from === user.id
+          }
+        ]);
+        
+        // If message is not from self, show notification
+        if (data.from !== user.id) {
+          // Show browser notification if supported
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('New Message', {
+              body: data.message,
+              icon: '/favicon.ico'
+            });
+          }
+          
+          // Show toast notification
+          toast({
+            title: "New Message",
+            description: `${data.fromName || 'Someone'}: ${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}`,
+          });
+          
+          // Add to notifications
+          const notificationId = `notification-${Date.now()}`;
+          setNotifications(prev => [
+            {
+              id: notificationId,
+              title: 'New Message',
+              message: `${data.fromName || 'Someone'}: ${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}`,
+              read: false,
+              timestamp: new Date().toISOString()
+            },
+            ...prev
+          ]);
+          
+          // Play notification sound
+          playNotificationSound();
+        }
+      });
+      
+      socketInstance.on('user:status', (data) => {
+        console.log('User status update:', data);
+        setUserStatuses(prev => ({
+          ...prev,
+          [data.userId]: data.status
+        }));
+      });
+      
+      socketInstance.on('file:shared', (data) => {
+        console.log('File shared:', data);
+        
+        // Add to chat history as a message with attachment
+        setChatHistory(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}-${Math.random()}`,
+            from: data.from,
+            to: data.to,
+            message: `Shared file: ${data.file.name}`,
+            timestamp: new Date().toISOString(),
+            fromSelf: data.from === user.id,
+            attachments: [{
+              id: data.fileId,
+              type: data.file.type.startsWith('image/') ? 'image' : 'document',
+              url: data.file.url,
+              name: data.file.name,
+              size: data.file.size
+            }]
+          }
+        ]);
+        
+        // Notification for file share
+        if (data.from !== user.id) {
+          toast({
+            title: "File Received",
+            description: `${data.fromName || 'Someone'} shared a file: ${data.file.name}`,
+          });
+          
+          // Add to notifications
+          const notificationId = `notification-${Date.now()}`;
+          setNotifications(prev => [
+            {
+              id: notificationId,
+              title: 'File Received',
+              message: `${data.fromName || 'Someone'} shared a file: ${data.file.name}`,
+              read: false,
+              timestamp: new Date().toISOString()
+            },
+            ...prev
+          ]);
+          
+          playNotificationSound();
+        }
+      });
+      
+      socketInstance.on('session:scheduled', (data) => {
+        console.log('Session scheduled:', data);
+        
+        // Check if this session already exists
+        const sessionExists = sessionHistory.some(session => session.id === data.id);
+        
+        if (!sessionExists) {
+          setSessionHistory(prev => [...prev, data]);
+          
+          // Notify if this session is for the current user
+          if (data.doctorId === user.id || data.patientId === user.id) {
+            const otherName = data.doctorId === user.id ? data.patientName : data.doctorName;
+            
+            toast({
+              title: "New Session Scheduled",
+              description: `A new ${data.type} session has been scheduled with ${otherName}`,
+            });
+            
+            // Add to notifications
+            const notificationId = `notification-${Date.now()}`;
+            setNotifications(prev => [
+              {
+                id: notificationId,
+                title: 'New Session Scheduled',
+                message: `A new ${data.type} session has been scheduled with ${otherName}`,
+                read: false,
+                timestamp: new Date().toISOString()
+              },
+              ...prev
+            ]);
+            
+            playNotificationSound();
+          }
+        }
+      });
+      
+      socketInstance.on('session:updated', (data) => {
+        console.log('Session updated:', data);
+        
+        setSessionHistory(prev => 
+          prev.map(session => 
+            session.id === data.id ? { ...session, ...data } : session
+          )
+        );
+        
+        // Notify if this session is for the current user
+        if (data.doctorId === user.id || data.patientId === user.id) {
+          const otherName = data.doctorId === user.id ? data.patientName : data.doctorName;
+          
+          toast({
+            title: "Session Updated",
+            description: `Your session with ${otherName} has been updated to ${data.status}`,
+          });
+          
+          // Add to notifications
+          const notificationId = `notification-${Date.now()}`;
+          setNotifications(prev => [
+            {
+              id: notificationId,
+              title: 'Session Updated',
+              message: `Your session with ${otherName} has been updated to ${data.status}`,
+              read: false,
+              timestamp: new Date().toISOString()
+            },
+            ...prev
+          ]);
+          
+          playNotificationSound();
+        }
       });
       
       socketInstance.on('call:incoming', (callData) => {
         console.log('Incoming call:', callData);
         setIncomingCall(callData);
         
+        // Set user status to busy
+        if (user.id) {
+          setUserStatuses(prev => ({
+            ...prev,
+            [user.id]: 'busy'
+          }));
+        }
+        
+        // Notify with sound and toast
         toast({
           title: "Incoming Call",
           description: `Call from ${callData.caller.name}`,
         });
+        
+        playNotificationSound();
       });
       
       socketInstance.on('call:accepted', (callData) => {
         console.log('Call accepted:', callData);
         setActiveCall(callData);
         setIncomingCall(null);
+        
+        // Set user status to busy
+        if (user.id) {
+          setUserStatuses(prev => ({
+            ...prev,
+            [user.id]: 'busy'
+          }));
+        }
         
         toast({
           title: "Call Connected",
@@ -142,6 +401,14 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         setActiveCall(null);
         setIncomingCall(null);
         
+        // Reset user status to online
+        if (user.id) {
+          setUserStatuses(prev => ({
+            ...prev,
+            [user.id]: 'online'
+          }));
+        }
+        
         toast({
           title: "Call Rejected",
           description: `${callData.receiver.name} is unavailable at the moment`,
@@ -153,6 +420,14 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         setActiveCall(null);
         setIncomingCall(null);
         
+        // Reset user status to online
+        if (user.id) {
+          setUserStatuses(prev => ({
+            ...prev,
+            [user.id]: 'online'
+          }));
+        }
+        
         toast({
           title: "Call Ended",
           description: "The call has ended",
@@ -160,6 +435,9 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       });
       
       setSocket(socketInstance);
+      
+      // Handle browser notifications
+      requestNotificationPermission();
     }
 
     return () => {
@@ -169,22 +447,45 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [user, toast]);
 
-  const sendMessage = (to: string, message: string) => {
-    if (socket && isConnected) {
+  // Helper function to request notification permission
+  const requestNotificationPermission = () => {
+    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      Notification.requestPermission();
+    }
+  };
+  
+  // Play notification sound
+  const playNotificationSound = () => {
+    try {
+      const audio = new Audio('/notification.mp3');
+      audio.play();
+    } catch (error) {
+      console.log('Could not play notification sound');
+    }
+  };
+
+  const sendMessage = (to: string, message: string, attachments?: Attachment[]) => {
+    if (socket && isConnected && user) {
       const messageId = `msg-${Date.now()}-${Math.random()}`;
       
-      const messageData = {
+      const messageData: Message = {
         id: messageId,
-        from: user?.id,
+        from: user.id,
         to,
         message,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        fromSelf: true,
+        attachments
       };
       
-      // Send the actual message to the recipient
-      socket.emit('message', messageData);
+      // Add to chat history immediately
+      setChatHistory(prev => [...prev, messageData]);
       
-      // No need to emit to self anymore as we're handling this in the ChatInterface
+      // Send the actual message to the recipient
+      socket.emit('message', {
+        ...messageData,
+        fromName: user.name
+      });
       
       return true;
     }
@@ -193,18 +494,24 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 
   const initiateCall = (to: string) => {
     if (socket && isConnected && user) {
-      const callData = {
+      const callData: CallData = {
         callId: `call-${Date.now()}`,
         caller: {
           id: user.id,
           name: user.name,
           role: user.role
         },
-        receiver: { id: to },
+        receiver: { id: to, name: '', role: user.role === 'doctor' ? 'patient' : 'doctor' },
         timestamp: new Date().toISOString()
       };
       
       socket.emit('call:initiate', callData);
+      
+      // Set user status to busy
+      setUserStatuses(prev => ({
+        ...prev,
+        [user.id]: 'busy'
+      }));
       
       // For mock behavior
       setActiveCall({
@@ -234,6 +541,14 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     if (socket && isConnected && incomingCall && incomingCall.callId === callId) {
       socket.emit('call:accept', { callId });
       
+      // Set user status to busy
+      if (user?.id) {
+        setUserStatuses(prev => ({
+          ...prev,
+          [user.id]: 'busy'
+        }));
+      }
+      
       // For mock behavior
       setActiveCall({
         ...incomingCall,
@@ -250,6 +565,15 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     if (socket && isConnected && incomingCall && incomingCall.callId === callId) {
       socket.emit('call:reject', { callId });
       setIncomingCall(null);
+      
+      // Reset user status to online
+      if (user?.id) {
+        setUserStatuses(prev => ({
+          ...prev,
+          [user.id]: 'online'
+        }));
+      }
+      
       return true;
     }
     return false;
@@ -259,9 +583,105 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     if (socket && isConnected && activeCall) {
       socket.emit('call:end', { callId: activeCall.callId });
       setActiveCall(null);
+      
+      // Reset user status to online
+      if (user?.id) {
+        setUserStatuses(prev => ({
+          ...prev,
+          [user.id]: 'online'
+        }));
+      }
+      
       return true;
     }
     return false;
+  };
+  
+  const scheduleSession = (session: Session) => {
+    if (socket && isConnected && user) {
+      // Add to session history immediately
+      setSessionHistory(prev => [...prev, session]);
+      
+      // Emit the event
+      socket.emit('session:schedule', session);
+      
+      return true;
+    }
+    return false;
+  };
+  
+  const updateSessionStatus = (sessionId: string, status: Session['status']) => {
+    if (socket && isConnected && user) {
+      // Update session history immediately
+      setSessionHistory(prev => 
+        prev.map(session => 
+          session.id === sessionId ? { ...session, status } : session
+        )
+      );
+      
+      // Emit the event
+      socket.emit('session:update', { sessionId, status });
+      
+      return true;
+    }
+    return false;
+  };
+  
+  const shareFile = async (to: string, file: File): Promise<boolean> => {
+    if (socket && isConnected && user) {
+      // In a real app, you would upload the file to a server here
+      // For demo purposes, we'll create a URL and simulate sharing
+      
+      const fileId = `file-${Date.now()}`;
+      const fileUrl = URL.createObjectURL(file);
+      
+      // Prepare file data
+      const fileData = {
+        fileId,
+        from: user.id,
+        to,
+        fromName: user.name,
+        file: {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          url: fileUrl
+        },
+        timestamp: new Date().toISOString()
+      };
+      
+      // Emit file shared event
+      socket.emit('file:share', fileData);
+      
+      // Create attachment for message
+      const attachment: Attachment = {
+        id: fileId,
+        type: file.type.startsWith('image/') ? 'image' : 'document',
+        url: fileUrl,
+        name: file.name,
+        size: file.size
+      };
+      
+      // Send a message with the attachment
+      sendMessage(to, `Shared file: ${file.name}`, [attachment]);
+      
+      return true;
+    }
+    return false;
+  };
+  
+  const markNotificationRead = (id: string) => {
+    setNotifications(prev => 
+      prev.map(notification => 
+        notification.id === id ? { ...notification, read: true } : notification
+      )
+    );
+  };
+  
+  const markAllNotificationsRead = () => {
+    setNotifications(prev => 
+      prev.map(notification => ({ ...notification, read: true }))
+    );
   };
 
   const value = {
@@ -272,8 +692,17 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     acceptCall,
     rejectCall,
     endCall,
+    scheduleSession,
+    updateSessionStatus,
+    shareFile,
     activeCall,
-    incomingCall
+    incomingCall,
+    userStatuses,
+    sessionHistory,
+    chatHistory,
+    notifications,
+    markNotificationRead,
+    markAllNotificationsRead
   };
 
   return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;
