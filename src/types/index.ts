@@ -1,4 +1,5 @@
 
+
 export interface User {
   id: string;
   username: string;
@@ -16,6 +17,7 @@ export interface Message {
   timestamp: string;
   fromSelf?: boolean;
   attachments?: Attachment[];
+  sessionId?: string; // Added sessionId property
 }
 
 export interface Attachment {
@@ -54,3 +56,4 @@ export interface CallData {
   timestamp: string;
   status?: 'calling' | 'active' | 'ended';
 }
+
