@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Translate } from 'lucide-react';
+import { Globe } from 'lucide-react';
 
 interface TranslationToggleProps {
   className?: string;
@@ -82,7 +82,7 @@ const TranslationToggle = ({ className }: TranslationToggleProps) => {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="icon" className={className}>
-          <Translate className="h-4 w-4" />
+          <Globe className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
