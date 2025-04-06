@@ -15,7 +15,7 @@ import AppointmentReminders from '@/components/AppointmentReminders';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { LogOut, MessageSquare, Video, Calendar, History, FileText } from 'lucide-react';
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from 'framer-motion';
 import { Session } from '@/types';
 
@@ -99,10 +99,10 @@ const PatientDashboard = () => {
             
             <div className="flex items-center">
               <div className="w-10 h-10 rounded-full bg-medilink-secondary flex items-center justify-center text-medilink-primary font-medium mr-3">
-                {user?.name.charAt(0)}
+                {user?.name ? user.name.charAt(0) : 'U'}
               </div>
               <div>
-                <p className="font-medium text-slate-800">{user?.name}</p>
+                <p className="font-medium text-slate-800">{user?.name || 'User'}</p>
                 <div className="flex items-center">
                   <StatusIndicator status="online" size="sm" showTooltip={false} />
                   <p className="text-xs text-slate-500 ml-1">Patient</p>
@@ -137,7 +137,7 @@ const PatientDashboard = () => {
             <div className="lg:col-span-3">
               <AppointmentReminders 
                 sessions={sessions} 
-                patientId={user?.id || ''} 
+                patientId={user?.id || 'p1'} 
                 className="h-full"
               />
             </div>
@@ -146,7 +146,7 @@ const PatientDashboard = () => {
             </div>
           </div>
           
-          <Tabs value={activeTab} onValueChange={handleTabChange} className="mb-6">
+          <Tabs defaultValue={activeTab} value={activeTab} onValueChange={handleTabChange} className="mb-6">
             <TabsList className="bg-white/70 backdrop-blur-sm">
               <TabsTrigger 
                 value="chat" 
@@ -184,120 +184,120 @@ const PatientDashboard = () => {
                 Prescriptions
               </TabsTrigger>
             </TabsList>
-          </Tabs>
-          
-          <div className="h-[calc(100vh-14rem)] bg-white/50 backdrop-blur-sm rounded-2xl p-6 shadow-subtle">
-            <AnimatePresence mode="wait">
-              {activeTab === 'chat' && (
-                <motion.div
-                  key="chat"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="h-full"
-                >
-                  <ChatInterface 
-                    recipientId={doctor.id} 
-                    recipientName={doctor.name} 
-                  />
-                </motion.div>
-              )}
-              
-              {activeTab === 'video' && (
-                <motion.div
-                  key="video"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="h-full flex items-center justify-center"
-                >
-                  {activeCall ? (
-                    <VideoCall 
-                      callData={activeCall} 
-                      onEndCall={() => setActiveTab('chat')} 
+            
+            <div className="h-[calc(100vh-14rem)] bg-white/50 backdrop-blur-sm rounded-2xl p-6 shadow-subtle">
+              <AnimatePresence mode="wait">
+                {activeTab === 'chat' && (
+                  <motion.div
+                    key="chat"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="h-full"
+                  >
+                    <ChatInterface 
+                      recipientId={doctor.id} 
+                      recipientName={doctor.name} 
                     />
-                  ) : (
+                  </motion.div>
+                )}
+                
+                {activeTab === 'video' && (
+                  <motion.div
+                    key="video"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="h-full flex items-center justify-center"
+                  >
+                    {activeCall ? (
+                      <VideoCall 
+                        callData={activeCall} 
+                        onEndCall={() => setActiveTab('chat')} 
+                      />
+                    ) : (
+                      <div className="text-center p-8">
+                        <img 
+                          src="https://cdn-icons-png.flaticon.com/512/1162/1162172.png" 
+                          alt="Waiting for call" 
+                          className="w-40 h-40 mx-auto mb-4 opacity-20"
+                        />
+                        <h3 className="text-xl font-medium text-slate-700 mb-2">
+                          Ready for Video Consultation
+                        </h3>
+                        <p className="text-slate-500 mb-6">
+                          Your doctor will initiate the video call. Please ensure your camera and microphone are working.
+                        </p>
+                        <Button onClick={() => setActiveTab('chat')}>
+                          Return to Chat
+                        </Button>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+                
+                {activeTab === 'schedule' && (
+                  <motion.div
+                    key="schedule"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="h-full overflow-auto"
+                  >
+                    <SessionScheduler 
+                      recipientId={doctor.id}
+                      recipientName={doctor.name}
+                      onScheduled={handleSessionScheduled}
+                    />
+                  </motion.div>
+                )}
+                
+                {activeTab === 'history' && (
+                  <motion.div
+                    key="history"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="h-full overflow-auto"
+                  >
+                    <SessionHistory 
+                      userId={user?.id || 'p1'} 
+                      recipientId={doctor.id} 
+                    />
+                  </motion.div>
+                )}
+                
+                {activeTab === 'prescriptions' && (
+                  <motion.div
+                    key="prescriptions"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="h-full overflow-auto"
+                  >
                     <div className="text-center p-8">
                       <img 
-                        src="https://cdn-icons-png.flaticon.com/512/1162/1162172.png" 
-                        alt="Waiting for call" 
+                        src="https://cdn-icons-png.flaticon.com/512/867/867860.png" 
+                        alt="Prescriptions" 
                         className="w-40 h-40 mx-auto mb-4 opacity-20"
                       />
                       <h3 className="text-xl font-medium text-slate-700 mb-2">
-                        Ready for Video Consultation
+                        Your Prescriptions
                       </h3>
                       <p className="text-slate-500 mb-6">
-                        Your doctor will initiate the video call. Please ensure your camera and microphone are working.
+                        You don't have any prescriptions yet. Your doctor will add them here when they're available.
                       </p>
-                      <Button onClick={() => setActiveTab('chat')}>
-                        Return to Chat
-                      </Button>
                     </div>
-                  )}
-                </motion.div>
-              )}
-              
-              {activeTab === 'schedule' && (
-                <motion.div
-                  key="schedule"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="h-full overflow-auto"
-                >
-                  <SessionScheduler 
-                    recipientId={doctor.id}
-                    recipientName={doctor.name}
-                    onScheduled={handleSessionScheduled}
-                  />
-                </motion.div>
-              )}
-              
-              {activeTab === 'history' && (
-                <motion.div
-                  key="history"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="h-full overflow-auto"
-                >
-                  <SessionHistory 
-                    userId={user?.id || ''} 
-                    recipientId={doctor.id} 
-                  />
-                </motion.div>
-              )}
-              
-              {activeTab === 'prescriptions' && (
-                <motion.div
-                  key="prescriptions"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="h-full overflow-auto"
-                >
-                  <div className="text-center p-8">
-                    <img 
-                      src="https://cdn-icons-png.flaticon.com/512/867/867860.png" 
-                      alt="Prescriptions" 
-                      className="w-40 h-40 mx-auto mb-4 opacity-20"
-                    />
-                    <h3 className="text-xl font-medium text-slate-700 mb-2">
-                      Your Prescriptions
-                    </h3>
-                    <p className="text-slate-500 mb-6">
-                      You don't have any prescriptions yet. Your doctor will add them here when they're available.
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </Tabs>
         </div>
       </main>
       

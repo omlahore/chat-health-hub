@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Globe } from 'lucide-react';
+import { useToast } from "@/hooks/use-toast";
 
 interface TranslationToggleProps {
   className?: string;
@@ -10,6 +11,7 @@ interface TranslationToggleProps {
 
 const TranslationToggle = ({ className }: TranslationToggleProps) => {
   const [currentLanguage, setCurrentLanguage] = useState<string>('en');
+  const { toast } = useToast();
   
   const languages = [
     { code: 'en', name: 'English' },
@@ -31,51 +33,88 @@ const TranslationToggle = ({ className }: TranslationToggleProps) => {
   }, []);
 
   const translatePage = (languageCode: string) => {
-    // Save language preference
-    localStorage.setItem('medilink-language', languageCode);
-    setCurrentLanguage(languageCode);
-    
-    // In a real application, this would integrate with a translation API
-    // For this demo, we're just simulating translation
-    console.log(`Page would be translated to ${languageCode}`);
-    
-    if (languageCode === 'en') {
-      // Reset translations (remove data-original attributes)
-      document.querySelectorAll('[data-original]').forEach(element => {
-        if (element.textContent && element.getAttribute('data-original')) {
-          element.textContent = element.getAttribute('data-original') || '';
-          element.removeAttribute('data-original');
+    try {
+      // Save language preference
+      localStorage.setItem('medilink-language', languageCode);
+      setCurrentLanguage(languageCode);
+      
+      // In a real application, this would integrate with a translation API
+      console.log(`Page would be translated to ${languageCode}`);
+      
+      if (languageCode === 'en') {
+        // Reset translations (remove data-original attributes)
+        document.querySelectorAll('[data-original]').forEach(element => {
+          if (element.textContent && element.getAttribute('data-original')) {
+            element.textContent = element.getAttribute('data-original') || '';
+            element.removeAttribute('data-original');
+          }
+        });
+        toast({
+          title: "Language Changed",
+          description: "Content is now displayed in English"
+        });
+        return;
+      }
+      
+      // Simple demonstration of how translation would work
+      // In a real app, this would use a proper i18n library or translation API
+      const translateableElements = document.querySelectorAll('h1, h2, h3, p, button, label, span, a');
+      
+      translateableElements.forEach((element) => {
+        // Skip elements inside the language dropdown
+        if (element.closest('.translation-dropdown')) return;
+        
+        if (element.textContent && element.textContent.trim() && !element.getAttribute('data-original')) {
+          // Store original text if not already stored
+          element.setAttribute('data-original', element.textContent);
+          
+          // Apply a simulated translation (for demo purposes only)
+          // In a real app, this would use actual translations from a service
+          if (languageCode === 'es') {
+            element.textContent = `${element.textContent} [ES]`;
+          } else if (languageCode === 'fr') {
+            element.textContent = `${element.textContent} [FR]`;
+          } else if (languageCode === 'de') {
+            element.textContent = `${element.textContent} [DE]`;
+          } else if (languageCode === 'zh') {
+            element.textContent = `${element.textContent} [ZH]`;
+          } else if (languageCode === 'ar') {
+            element.textContent = `${element.textContent} [AR]`;
+          } else if (languageCode === 'hi') {
+            element.textContent = `${element.textContent} [HI]`;
+          }
+        } else if (element.getAttribute('data-original')) {
+          // Element already has a translation, update it with the new language
+          const originalText = element.getAttribute('data-original') || '';
+          
+          if (languageCode === 'es') {
+            element.textContent = `${originalText} [ES]`;
+          } else if (languageCode === 'fr') {
+            element.textContent = `${originalText} [FR]`;
+          } else if (languageCode === 'de') {
+            element.textContent = `${originalText} [DE]`;
+          } else if (languageCode === 'zh') {
+            element.textContent = `${originalText} [ZH]`;
+          } else if (languageCode === 'ar') {
+            element.textContent = `${originalText} [AR]`;
+          } else if (languageCode === 'hi') {
+            element.textContent = `${originalText} [HI]`;
+          }
         }
       });
-      return;
+      
+      toast({
+        title: "Language Changed",
+        description: `Content is now displayed in ${languages.find(lang => lang.code === languageCode)?.name || languageCode}`
+      });
+    } catch (error) {
+      console.error("Translation error:", error);
+      toast({
+        title: "Translation Error",
+        description: "There was an error changing the language",
+        variant: "destructive"
+      });
     }
-    
-    // Simple demonstration of how translation would work
-    // In a real app, this would use a proper i18n library or translation API
-    const translateableElements = document.querySelectorAll('h1, h2, h3, p, button, label, span, a');
-    
-    translateableElements.forEach((element) => {
-      if (element.textContent && element.textContent.trim() && !element.getAttribute('data-original')) {
-        // Store original text if not already stored
-        element.setAttribute('data-original', element.textContent);
-        
-        // Apply a simulated translation (for demo purposes only)
-        // In a real app, this would use actual translations from a service
-        if (languageCode === 'es') {
-          element.textContent = `${element.textContent} [ES]`;
-        } else if (languageCode === 'fr') {
-          element.textContent = `${element.textContent} [FR]`;
-        } else if (languageCode === 'de') {
-          element.textContent = `${element.textContent} [DE]`;
-        } else if (languageCode === 'zh') {
-          element.textContent = `${element.textContent} [ZH]`;
-        } else if (languageCode === 'ar') {
-          element.textContent = `${element.textContent} [AR]`;
-        } else if (languageCode === 'hi') {
-          element.textContent = `${element.textContent} [HI]`;
-        }
-      }
-    });
   };
 
   return (
@@ -85,7 +124,7 @@ const TranslationToggle = ({ className }: TranslationToggleProps) => {
           <Globe className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="translation-dropdown">
         {languages.map((language) => (
           <DropdownMenuItem 
             key={language.code}
