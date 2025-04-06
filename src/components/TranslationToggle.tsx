@@ -28,7 +28,7 @@ const TranslationToggle = ({ className }: TranslationToggleProps) => {
     const savedLanguage = localStorage.getItem('medilink-language');
     if (savedLanguage) {
       setCurrentLanguage(savedLanguage);
-      translatePage(savedLanguage);
+      // Don't auto-translate on initial load to avoid unexpected behavior
     }
   }, []);
 
@@ -44,7 +44,7 @@ const TranslationToggle = ({ className }: TranslationToggleProps) => {
       if (languageCode === 'en') {
         // Reset translations (remove data-original attributes)
         document.querySelectorAll('[data-original]').forEach(element => {
-          if (element.textContent && element.getAttribute('data-original')) {
+          if (element instanceof HTMLElement && element.getAttribute('data-original')) {
             element.textContent = element.getAttribute('data-original') || '';
             element.removeAttribute('data-original');
           }
@@ -64,41 +64,43 @@ const TranslationToggle = ({ className }: TranslationToggleProps) => {
         // Skip elements inside the language dropdown
         if (element.closest('.translation-dropdown')) return;
         
-        if (element.textContent && element.textContent.trim() && !element.getAttribute('data-original')) {
-          // Store original text if not already stored
-          element.setAttribute('data-original', element.textContent);
-          
-          // Apply a simulated translation (for demo purposes only)
-          // In a real app, this would use actual translations from a service
-          if (languageCode === 'es') {
-            element.textContent = `${element.textContent} [ES]`;
-          } else if (languageCode === 'fr') {
-            element.textContent = `${element.textContent} [FR]`;
-          } else if (languageCode === 'de') {
-            element.textContent = `${element.textContent} [DE]`;
-          } else if (languageCode === 'zh') {
-            element.textContent = `${element.textContent} [ZH]`;
-          } else if (languageCode === 'ar') {
-            element.textContent = `${element.textContent} [AR]`;
-          } else if (languageCode === 'hi') {
-            element.textContent = `${element.textContent} [HI]`;
-          }
-        } else if (element.getAttribute('data-original')) {
-          // Element already has a translation, update it with the new language
-          const originalText = element.getAttribute('data-original') || '';
-          
-          if (languageCode === 'es') {
-            element.textContent = `${originalText} [ES]`;
-          } else if (languageCode === 'fr') {
-            element.textContent = `${originalText} [FR]`;
-          } else if (languageCode === 'de') {
-            element.textContent = `${originalText} [DE]`;
-          } else if (languageCode === 'zh') {
-            element.textContent = `${originalText} [ZH]`;
-          } else if (languageCode === 'ar') {
-            element.textContent = `${originalText} [AR]`;
-          } else if (languageCode === 'hi') {
-            element.textContent = `${originalText} [HI]`;
+        if (element instanceof HTMLElement) {
+          if (element.textContent && element.textContent.trim() && !element.getAttribute('data-original')) {
+            // Store original text if not already stored
+            element.setAttribute('data-original', element.textContent);
+            
+            // Apply a simulated translation (for demo purposes only)
+            // In a real app, this would use actual translations from a service
+            if (languageCode === 'es') {
+              element.textContent = `${element.textContent} [ES]`;
+            } else if (languageCode === 'fr') {
+              element.textContent = `${element.textContent} [FR]`;
+            } else if (languageCode === 'de') {
+              element.textContent = `${element.textContent} [DE]`;
+            } else if (languageCode === 'zh') {
+              element.textContent = `${element.textContent} [ZH]`;
+            } else if (languageCode === 'ar') {
+              element.textContent = `${element.textContent} [AR]`;
+            } else if (languageCode === 'hi') {
+              element.textContent = `${element.textContent} [HI]`;
+            }
+          } else if (element.getAttribute('data-original')) {
+            // Element already has a translation, update it with the new language
+            const originalText = element.getAttribute('data-original') || '';
+            
+            if (languageCode === 'es') {
+              element.textContent = `${originalText} [ES]`;
+            } else if (languageCode === 'fr') {
+              element.textContent = `${originalText} [FR]`;
+            } else if (languageCode === 'de') {
+              element.textContent = `${originalText} [DE]`;
+            } else if (languageCode === 'zh') {
+              element.textContent = `${originalText} [ZH]`;
+            } else if (languageCode === 'ar') {
+              element.textContent = `${originalText} [AR]`;
+            } else if (languageCode === 'hi') {
+              element.textContent = `${originalText} [HI]`;
+            }
           }
         }
       });
