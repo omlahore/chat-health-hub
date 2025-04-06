@@ -5,11 +5,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Send, File, Image } from 'lucide-react';
+import { Send, File } from 'lucide-react';
 import { motion } from 'framer-motion';
 import FileShareButton from './FileShareButton';
 import StatusIndicator from './StatusIndicator';
 import { Message, Attachment } from '@/types';
+import { useToast } from "@/hooks/use-toast";
 
 interface ChatInterfaceProps {
   recipientId: string;
@@ -19,36 +20,17 @@ interface ChatInterfaceProps {
 const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const { sendMessage, socket, userStatuses, chatHistory } = useSocket();
   const { user } = useAuth();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
 
-  // Initial mock messages
+  // Load chat history when recipient changes
   useEffect(() => {
     // Clear messages when recipient changes
     setMessages([]);
-    
-    // Add mock messages with a slight delay to simulate loading
-    const timer = setTimeout(() => {
-      const mockMessages: Message[] = [
-        {
-          id: '1',
-          from: recipientId,
-          to: user?.id || '',
-          message: `Hello! How can I help you today?`,
-          timestamp: new Date(Date.now() - 3600000).toISOString(),
-        },
-      ];
-      
-      setMessages(mockMessages);
-    }, 500);
-    
-    return () => clearTimeout(timer);
-  }, [recipientId, user?.id]);
-
-  // Listen for incoming messages
-  useEffect(() => {
-    if (!socket) return;
+    setIsLoading(true);
     
     // Filter chat history for this conversation
     const relevantMessages = chatHistory.filter(
@@ -56,18 +38,27 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
              (msg.from === user?.id && msg.to === recipientId)
     );
     
-    if (relevantMessages.length > 0) {
-      // Merge with existing messages, avoiding duplicates
-      const existingIds = new Set(messages.map(m => m.id));
-      const newMessages = relevantMessages.filter(msg => !existingIds.has(msg.id));
+    // Sort messages by timestamp
+    const sortedMessages = [...relevantMessages].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    
+    // Set messages with a slight delay to simulate loading
+    setTimeout(() => {
+      setMessages(sortedMessages);
+      setIsLoading(false);
       
-      if (newMessages.length > 0) {
-        setMessages(prev => [...prev, ...newMessages]);
-      }
-    }
-  }, [socket, recipientId, user?.id, messages, chatHistory]);
+      // Scroll to bottom after loading messages
+      setTimeout(() => {
+        if (scrollAreaRef.current) {
+          scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+        }
+      }, 100);
+    }, 500);
+    
+  }, [recipientId, user?.id, chatHistory]);
 
-  // Listen for real-time message updates
+  // Listen for incoming messages
   useEffect(() => {
     if (!socket) return;
     
@@ -87,11 +78,16 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
               from: data.from,
               to: data.to,
               message: data.message,
-              timestamp: data.timestamp,
+              timestamp: data.timestamp || new Date().toISOString(),
               fromSelf: data.from === user?.id,
               attachments: data.attachments
             }
           ]);
+          
+          // Play notification sound for incoming messages
+          if (data.from !== user?.id) {
+            playNotificationSound();
+          }
         }
       }
     };
@@ -105,16 +101,25 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    if (scrollAreaRef.current) {
+    if (scrollAreaRef.current && !isLoading) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isLoading]);
 
   const handleSendMessage = () => {
     if (!message.trim() || !user) return;
     
     // Send message through socket
-    sendMessage(recipientId, message.trim());
+    const success = sendMessage(recipientId, message.trim());
+    
+    if (!success) {
+      toast({
+        title: "Message not sent",
+        description: "Please try again",
+        variant: "destructive"
+      });
+    }
+    
     setMessage('');
   };
 
@@ -122,6 +127,16 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+    }
+  };
+
+  // Play notification sound
+  const playNotificationSound = () => {
+    try {
+      const audio = new Audio('/notification.mp3');
+      audio.play();
+    } catch (error) {
+      console.log('Could not play notification sound');
     }
   };
 
@@ -173,7 +188,7 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
         <div className="ml-3">
           <h3 className="font-medium">{recipientName}</h3>
           <div className="flex items-center">
-            <StatusIndicator status={recipientStatus} size="sm" showTooltip={false} />
+            <StatusIndicator status={recipientStatus} size="sm" showTooltip={false} pulseEffect={recipientStatus === 'online'} />
             <span className="text-xs text-slate-500 ml-2 capitalize">{recipientStatus}</span>
           </div>
         </div>
@@ -181,51 +196,57 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
       
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
-        <div className="space-y-4">
-          {messages.map((msg, index) => {
-            const isFromSelf = msg.fromSelf || msg.from === user?.id;
-            
-            return (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.1 }}
-                className={`flex ${isFromSelf ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[80%] p-3 rounded-2xl ${
-                    isFromSelf 
-                      ? 'bg-medilink-primary text-white rounded-tr-none' 
-                      : 'bg-medilink-secondary text-slate-800 rounded-tl-none'
-                  }`}
-                >
-                  <p className="text-sm">{msg.message}</p>
-                  
-                  {msg.attachments && msg.attachments.length > 0 && (
-                    <div className={isFromSelf ? 'text-white' : 'text-slate-800'}>
-                      {msg.attachments.map(attachment => (
-                        <div key={attachment.id}>
-                          {renderAttachment(attachment)}
+        {isLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-medilink-primary"></div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {messages.length === 0 ? (
+              <div className="text-center py-10 text-slate-400">
+                No messages yet. Start the conversation!
+              </div>
+            ) : (
+              messages.map((msg, index) => {
+                const isFromSelf = msg.fromSelf || msg.from === user?.id;
+                
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: index * 0.05 }}
+                    className={`flex ${isFromSelf ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[80%] p-3 rounded-2xl ${
+                        isFromSelf 
+                          ? 'bg-medilink-primary text-white rounded-tr-none' 
+                          : 'bg-medilink-secondary text-slate-800 rounded-tl-none'
+                      }`}
+                    >
+                      <p className="text-sm">{msg.message}</p>
+                      
+                      {msg.attachments && msg.attachments.length > 0 && (
+                        <div className={isFromSelf ? 'text-white' : 'text-slate-800'}>
+                          {msg.attachments.map(attachment => (
+                            <div key={attachment.id}>
+                              {renderAttachment(attachment)}
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
+                      
+                      <div className={`text-xs mt-1 ${isFromSelf ? 'text-blue-100' : 'text-slate-500'}`}>
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
                     </div>
-                  )}
-                  
-                  <div className={`text-xs mt-1 ${isFromSelf ? 'text-blue-100' : 'text-slate-500'}`}>
-                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })}
-          
-          {messages.length === 0 && (
-            <div className="text-center py-10 text-slate-400">
-              No messages yet. Start the conversation!
-            </div>
-          )}
-        </div>
+                  </motion.div>
+                );
+              })
+            )}
+          </div>
+        )}
       </ScrollArea>
       
       {/* Message input */}
@@ -239,12 +260,13 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyPress}
             className="h-10 rounded-full border-slate-200"
+            disabled={isLoading}
           />
           
           <Button 
             onClick={handleSendMessage}
             className="rounded-full h-10 w-10 p-0 flex-shrink-0 bg-medilink-primary hover:bg-medilink-primary/90"
-            disabled={!message.trim()}
+            disabled={!message.trim() || isLoading}
             type="button"
           >
             <Send className="h-5 w-5" />

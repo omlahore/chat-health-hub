@@ -11,10 +11,17 @@ interface StatusIndicatorProps {
   status: 'online' | 'offline' | 'busy';
   size?: 'sm' | 'md' | 'lg';
   showTooltip?: boolean;
-  className?: string; // Added className prop
+  className?: string;
+  pulseEffect?: boolean;
 }
 
-const StatusIndicator = ({ status, size = 'md', showTooltip = true, className = '' }: StatusIndicatorProps) => {
+const StatusIndicator = ({ 
+  status, 
+  size = 'md', 
+  showTooltip = true, 
+  className = '',
+  pulseEffect = false
+}: StatusIndicatorProps) => {
   const getStatusColor = () => {
     switch (status) {
       case 'online':
@@ -44,7 +51,10 @@ const StatusIndicator = ({ status, size = 'md', showTooltip = true, className = 
   };
   
   const indicator = (
-    <Circle className={`${getSize()} ${getStatusColor()} fill-current ${className}`} />
+    <Circle 
+      className={`${getSize()} ${getStatusColor()} fill-current ${className} 
+      ${pulseEffect && status === 'online' ? 'animate-pulse' : ''}`} 
+    />
   );
   
   if (!showTooltip) {
