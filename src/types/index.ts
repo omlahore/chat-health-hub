@@ -1,5 +1,4 @@
 
-
 export interface User {
   id: string;
   username: string;
@@ -17,7 +16,7 @@ export interface Message {
   timestamp: string;
   fromSelf?: boolean;
   attachments?: Attachment[];
-  sessionId?: string; // Added sessionId property
+  sessionId?: string;
 }
 
 export interface Attachment {
@@ -57,3 +56,21 @@ export interface CallData {
   status?: 'calling' | 'active' | 'ended';
 }
 
+export interface Prescription {
+  id: string;
+  patientId: string;
+  patientName: string;
+  doctorId: string;
+  doctorName: string;
+  medications: Medication[];
+  instructions: string;
+  createdAt: string;
+  signatureData?: string;
+}
+
+export interface Medication {
+  name: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+}

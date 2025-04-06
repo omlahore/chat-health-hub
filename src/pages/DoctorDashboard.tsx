@@ -9,12 +9,15 @@ import SessionScheduler from '@/components/SessionScheduler';
 import SessionHistory from '@/components/SessionHistory';
 import StatusIndicator from '@/components/StatusIndicator';
 import NotificationsPopover from '@/components/NotificationsPopover';
+import DigitalPrescription from '@/components/DigitalPrescription';
+import TranslationToggle from '@/components/TranslationToggle';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { LogOut, MessageSquare, Phone, Video, Calendar, History, User } from 'lucide-react';
+import { LogOut, MessageSquare, Phone, Video, Calendar, History, User, FileText } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
 import { motion, AnimatePresence } from 'framer-motion';
+import { Prescription } from '@/types';
 
 // Mock patient data
 const patients = [
@@ -26,7 +29,8 @@ const DoctorDashboard = () => {
   const { user, logout } = useAuth();
   const { activeCall, incomingCall, initiateCall, userStatuses } = useSocket();
   const [selectedPatient, setSelectedPatient] = useState(patients[0]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'video' | 'schedule' | 'history'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions'>('dashboard');
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const { toast } = useToast();
 
   const handleLogout = () => {
@@ -56,7 +60,7 @@ const DoctorDashboard = () => {
     setActiveTab('chat');
   };
 
-  const handleTabChange = (value: 'dashboard' | 'chat' | 'video' | 'schedule' | 'history') => {
+  const handleTabChange = (value: 'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions') => {
     if (activeCall && value !== 'video') {
       toast({
         title: "Active Call",
@@ -66,6 +70,10 @@ const DoctorDashboard = () => {
     }
     
     setActiveTab(value);
+  };
+
+  const handlePrescriptionCreated = (prescription: Prescription) => {
+    setPrescriptions(prev => [...prev, prescription]);
   };
 
   // Get patient statuses
@@ -81,7 +89,8 @@ const DoctorDashboard = () => {
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <h1 className="text-2xl font-bold text-medilink-dark">MediLink</h1>
           
-          <div className="flex items-center space-x-6">
+          <div className="flex items-center space-x-3">
+            <TranslationToggle />
             <NotificationsPopover />
             
             <div className="flex items-center">
@@ -109,7 +118,7 @@ const DoctorDashboard = () => {
         <div className="max-w-7xl mx-auto">
           <Tabs 
             value={activeTab} 
-            onValueChange={(value) => handleTabChange(value as 'dashboard' | 'chat' | 'video' | 'schedule' | 'history')} 
+            onValueChange={(value) => handleTabChange(value as 'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions')} 
             className="mb-6"
           >
             <TabsList className="bg-white/70 backdrop-blur-sm">
@@ -157,6 +166,15 @@ const DoctorDashboard = () => {
                   >
                     <History className="h-4 w-4 mr-2" />
                     History
+                  </TabsTrigger>
+                  
+                  <TabsTrigger 
+                    value="prescriptions" 
+                    className="data-[state=active]:bg-medilink-primary data-[state=active]:text-white"
+                    disabled={!selectedPatient}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Prescriptions
                   </TabsTrigger>
                 </>
               )}
@@ -336,6 +354,26 @@ const DoctorDashboard = () => {
                   <SessionHistory 
                     userId={user?.id || ''} 
                     recipientId={selectedPatient?.id} 
+                  />
+                </motion.div>
+              )}
+              
+              {activeTab === 'prescriptions' && (
+                <motion.div
+                  key="prescriptions"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="h-full overflow-auto"
+                >
+                  <h2 className="text-xl font-semibold text-slate-800 mb-4">
+                    Prescription for {selectedPatient.name}
+                  </h2>
+                  <DigitalPrescription 
+                    patientId={selectedPatient.id}
+                    patientName={selectedPatient.name}
+                    onPrescriptionCreated={handlePrescriptionCreated}
                   />
                 </motion.div>
               )}
