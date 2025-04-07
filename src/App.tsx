@@ -11,6 +11,7 @@ import PatientDashboard from "./pages/PatientDashboard";
 import DoctorDashboard from "./pages/DoctorDashboard";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
+import AIAssistant from "./components/AIAssistant";
 import { StrictMode } from "react";
 
 const queryClient = new QueryClient({
@@ -49,6 +50,7 @@ const App = () => (
                 />
                 <Route path="*" element={<NotFound />} />
               </Routes>
+              <AIAssistant />
             </BrowserRouter>
             <Toaster />
             <Sonner />

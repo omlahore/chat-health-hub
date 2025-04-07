@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Mic, MicOff, Phone, Video, VideoOff } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/hooks/use-toast';
 
 interface VideoCallProps {
   callData: any;
@@ -20,6 +20,7 @@ const VideoCall = ({ callData, onEndCall }: VideoCallProps) => {
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [callEnded, setCallEnded] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'failed'>('connecting');
   const { endCall } = useSocket();
   const { toast } = useToast();
 
@@ -47,6 +48,7 @@ const VideoCall = ({ callData, onEndCall }: VideoCallProps) => {
             const mockRemoteStream = new MediaStream(clonedTracks);
             setRemoteStream(mockRemoteStream);
             remoteVideoRef.current.srcObject = mockRemoteStream;
+            setConnectionStatus('connected');
             
             toast({
               title: "Call Connected",
@@ -56,6 +58,7 @@ const VideoCall = ({ callData, onEndCall }: VideoCallProps) => {
         }, 1500);
       } catch (err) {
         console.error('Error accessing media devices:', err);
+        setConnectionStatus('failed');
         toast({
           title: "Camera/Microphone Error",
           description: "Could not access your camera or microphone. Please check permissions.",
@@ -122,7 +125,7 @@ const VideoCall = ({ callData, onEndCall }: VideoCallProps) => {
     });
   };
 
-  const otherPartyName = callData?.caller?.id === callData?.receiver?.id
+  const otherPartyName = callData?.caller?.id === callData?.caller?.id
     ? callData?.receiver?.name
     : callData?.caller?.name;
 
@@ -134,6 +137,26 @@ const VideoCall = ({ callData, onEndCall }: VideoCallProps) => {
       transition={{ duration: 0.3 }}
       className="flex flex-col h-full relative rounded-2xl overflow-hidden shadow-elevation"
     >
+      {/* Connection status overlay */}
+      {connectionStatus === 'connecting' && (
+        <div className="absolute inset-0 bg-black/70 z-20 flex flex-col items-center justify-center">
+          <div className="w-16 h-16 border-4 border-t-medilink-primary border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin mb-4"></div>
+          <h3 className="text-xl font-medium text-white mb-2">Connecting...</h3>
+          <p className="text-slate-300">Setting up secure connection</p>
+        </div>
+      )}
+      
+      {connectionStatus === 'failed' && (
+        <div className="absolute inset-0 bg-black/70 z-20 flex flex-col items-center justify-center">
+          <div className="text-red-500 mb-4 text-5xl">⚠️</div>
+          <h3 className="text-xl font-medium text-white mb-2">Connection Failed</h3>
+          <p className="text-slate-300 mb-4">Could not establish a secure connection</p>
+          <Button onClick={handleEndCall} variant="destructive">
+            Return to Dashboard
+          </Button>
+        </div>
+      )}
+      
       {/* Remote video (main view) */}
       <div className="relative w-full h-full bg-slate-900 flex items-center justify-center">
         <video
