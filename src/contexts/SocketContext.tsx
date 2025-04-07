@@ -1,14 +1,16 @@
-
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { Message, Session, Attachment, CallData } from '@/types';
 
 // Mock socket.io client functionality without a real server
 class MockSocket {
   private listeners: { [event: string]: Function[] } = {};
   private connected = false;
+  private rooms: Set<string> = new Set();
+  private static instances: Map<string, MockSocket> = new Map();
+  private userId: string | null = null;
   
   constructor() {
     // Simulate connection delay
@@ -16,6 +18,24 @@ class MockSocket {
       this.connected = true;
       this.emit('connect');
     }, 500);
+  }
+
+  joinRoom(room: string) {
+    this.rooms.add(room);
+    console.log(`User ${this.userId} joined room: ${room}`);
+    return this;
+  }
+  
+  leaveRoom(room: string) {
+    this.rooms.delete(room);
+    console.log(`User ${this.userId} left room: ${room}`);
+    return this;
+  }
+
+  setUserId(userId: string) {
+    this.userId = userId;
+    MockSocket.instances.set(userId, this);
+    return this;
   }
   
   on(event: string, callback: Function) {
@@ -47,6 +67,28 @@ class MockSocket {
         callback(...args);
       });
     }
+
+    // Handle special events that should broadcast to other instances
+    if (event === 'message') {
+      this.broadcastMessage(args[0]);
+    } else if (event === 'join') {
+      const userData = args[0];
+      this.setUserId(userData.userId);
+      this.joinRoom(`chat_${userData.userId}`);
+    } else if (event === 'user:status') {
+      this.broadcastUserStatus(args[0]);
+    } else if (event === 'file:share') {
+      this.broadcastFileShare(args[0]);
+    } else if (event === 'call:initiate') {
+      this.broadcastCallEvent('call:incoming', args[0]);
+    } else if (event === 'call:accept' || event === 'call:reject' || event === 'call:end') {
+      this.broadcastCallEvent(event, args[0]);
+    } else if (event === 'session:schedule') {
+      this.broadcastSessionEvent('session:scheduled', args[0]);
+    } else if (event === 'session:update') {
+      this.broadcastSessionEvent('session:updated', args[0]);
+    }
+    
     return this;
   }
   
@@ -62,8 +104,85 @@ class MockSocket {
     if (this.connected) {
       this.connected = false;
       this.emit('disconnect');
+      if (this.userId) {
+        MockSocket.instances.delete(this.userId);
+      }
     }
     return this;
+  }
+
+  // Helper methods for broadcasting events between instances
+  private broadcastMessage(messageData: any) {
+    // Get the recipient socket instance
+    const recipientId = messageData.to;
+    const recipientSocket = MockSocket.instances.get(recipientId);
+    
+    if (recipientSocket && recipientSocket.connected) {
+      recipientSocket.listeners['message']?.forEach(callback => {
+        callback(messageData);
+      });
+    }
+  }
+
+  private broadcastUserStatus(statusData: any) {
+    // Broadcast status to all connected sockets
+    MockSocket.instances.forEach((socket, userId) => {
+      if (socket.connected && userId !== this.userId) {
+        socket.listeners['user:status']?.forEach(callback => {
+          callback(statusData);
+        });
+      }
+    });
+  }
+
+  private broadcastFileShare(fileData: any) {
+    // Send to specific recipient
+    const recipientId = fileData.to;
+    const recipientSocket = MockSocket.instances.get(recipientId);
+    
+    if (recipientSocket && recipientSocket.connected) {
+      recipientSocket.listeners['file:shared']?.forEach(callback => {
+        callback(fileData);
+      });
+    }
+  }
+
+  private broadcastCallEvent(eventType: string, callData: any) {
+    let targetId;
+    
+    if (eventType === 'call:incoming') {
+      targetId = callData.receiver.id;
+    } else {
+      targetId = callData.caller?.id || callData.callId.split('-')[0];
+    }
+    
+    const targetSocket = MockSocket.instances.get(targetId);
+    
+    if (targetSocket && targetSocket.connected) {
+      targetSocket.listeners[eventType]?.forEach(callback => {
+        callback(callData);
+      });
+    }
+  }
+
+  private broadcastSessionEvent(eventType: string, sessionData: any) {
+    // Broadcast to all relevant users (doctor and patient)
+    const doctorSocket = MockSocket.instances.get(sessionData.doctorId);
+    const patientSocket = MockSocket.instances.get(sessionData.patientId);
+    
+    // Notify doctor
+    if (doctorSocket && doctorSocket.connected) {
+      doctorSocket.listeners[eventType]?.forEach(callback => {
+        callback(sessionData);
+      });
+    }
+    
+    // Notify patient
+    if (patientSocket && patientSocket.connected) {
+      patientSocket.listeners[eventType]?.forEach(callback => {
+        callback(sessionData);
+      });
+    }
   }
 }
 

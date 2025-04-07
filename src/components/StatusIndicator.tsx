@@ -36,7 +36,16 @@ const StatusIndicator = ({
   };
   
   const getStatusText = () => {
-    return status.charAt(0).toUpperCase() + status.slice(1);
+    switch (status) {
+      case 'online':
+        return 'Online - Available';
+      case 'busy':
+        return 'Busy - In a call or session';
+      case 'offline':
+        return 'Offline - Unavailable';
+      default:
+        return 'Status unknown';
+    }
   };
   
   const getSize = () => {

@@ -25,6 +25,9 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
   const { user } = useAuth();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const chatRoomId = user && recipientId ? 
+    [user.id, recipientId].sort().join('_') : // Create a consistent room ID regardless of who initiates
+    '';
 
   // Load chat history when recipient changes
   useEffect(() => {
@@ -43,6 +46,8 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
     
+    console.log(`Loading ${sortedMessages.length} messages for chat between ${user?.id} and ${recipientId}`);
+    
     // Set messages with a slight delay to simulate loading
     setTimeout(() => {
       setMessages(sortedMessages);
@@ -58,11 +63,28 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
     
   }, [recipientId, user?.id, chatHistory]);
 
+  // Join chat room when component mounts
+  useEffect(() => {
+    if (socket && user && recipientId && chatRoomId) {
+      console.log(`Joining chat room: ${chatRoomId}`);
+      
+      // In a real implementation, you would join a room
+      // socket.emit('joinRoom', chatRoomId);
+      
+      return () => {
+        // In a real implementation, you would leave the room
+        // socket.emit('leaveRoom', chatRoomId);
+      };
+    }
+  }, [socket, user, recipientId, chatRoomId]);
+
   // Listen for incoming messages
   useEffect(() => {
     if (!socket) return;
     
     const handleIncomingMessage = (data: any) => {
+      console.log('Processing incoming message:', data);
+      
       // Only process messages that are meant for this conversation
       if ((data.from === recipientId && data.to === user?.id) || 
           (data.from === user?.id && data.to === recipientId)) {
@@ -71,6 +93,7 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
         const messageExists = messages.some(msg => msg.id === data.id);
         
         if (!messageExists) {
+          console.log('Adding new message to chat:', data);
           setMessages(prev => [
             ...prev, 
             {
@@ -88,6 +111,8 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
           if (data.from !== user?.id) {
             playNotificationSound();
           }
+        } else {
+          console.log('Message already exists in chat, skipping:', data.id);
         }
       }
     };
@@ -108,6 +133,8 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
 
   const handleSendMessage = () => {
     if (!message.trim() || !user) return;
+    
+    console.log(`Sending message to ${recipientId}: ${message}`);
     
     // Send message through socket
     const success = sendMessage(recipientId, message.trim());
