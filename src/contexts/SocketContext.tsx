@@ -8,7 +8,7 @@ import { Message, Session, Attachment, CallData } from '@/types';
 class MockSocket {
   private listeners: { [event: string]: Function[] } = {};
   private connected = false;
-  private rooms: Set<string> = new Set();
+  public rooms: Set<string> = new Set();
   private static instances: Map<string, MockSocket> = new Map();
   private userId: string | null = null;
   
@@ -62,18 +62,24 @@ class MockSocket {
   }
   
   emit(event: string, ...args: any[]) {
+    // Call local listeners for the event if registered.
     if (this.listeners[event]) {
       this.listeners[event].forEach(callback => {
         callback(...args);
       });
     }
 
-    // Handle special events that should broadcast to other instances
-    if (event === 'message') {
+    // Handle special events
+    if (event === 'joinRoom') {
+      // Handle joining a common room.
+      this.joinRoom(args[0]); // args[0] should be room name.
+      return this;
+    } else if (event === 'message') {
       this.broadcastMessage(args[0]);
     } else if (event === 'join') {
       const userData = args[0];
       this.setUserId(userData.userId);
+      // Optionally, you could join a personal room
       this.joinRoom(`chat_${userData.userId}`);
     } else if (event === 'user:status') {
       this.broadcastUserStatus(args[0]);
@@ -113,17 +119,20 @@ class MockSocket {
 
   // Helper methods for broadcasting events between instances
   private broadcastMessage(messageData: any) {
-    // Get the recipient socket instance
-    const recipientId = messageData.to;
-    const recipientSocket = MockSocket.instances.get(recipientId);
+    // Get the target room name from the message data.
+    const targetRoom = messageData.room;
     
-    if (recipientSocket && recipientSocket.connected) {
-      recipientSocket.listeners['message']?.forEach(callback => {
-        callback(messageData);
-      });
-    }
+    // Iterate over all connected socket instances
+    MockSocket.instances.forEach((socketInstance) => {
+      // Check if the socket is in the same room and is connected
+      if (socketInstance.connected && socketInstance.rooms.has(targetRoom)) {
+        socketInstance.listeners['message']?.forEach(callback => {
+          callback(messageData);
+        });
+      }
+    });
   }
-
+  
   private broadcastUserStatus(statusData: any) {
     // Broadcast status to all connected sockets
     MockSocket.instances.forEach((socket, userId) => {
@@ -170,14 +179,12 @@ class MockSocket {
     const doctorSocket = MockSocket.instances.get(sessionData.doctorId);
     const patientSocket = MockSocket.instances.get(sessionData.patientId);
     
-    // Notify doctor
     if (doctorSocket && doctorSocket.connected) {
       doctorSocket.listeners[eventType]?.forEach(callback => {
         callback(sessionData);
       });
     }
     
-    // Notify patient
     if (patientSocket && patientSocket.connected) {
       patientSocket.listeners[eventType]?.forEach(callback => {
         callback(sessionData);
@@ -186,8 +193,8 @@ class MockSocket {
   }
 }
 
-// We'll use a mock socket for demonstration
-// In a real app, use: io('your-server-url')
+// We'll use a mock socket for demonstration.
+// In a real app, you would connect using: io('your-server-url')
 const createMockSocket = () => new MockSocket() as unknown as Socket;
 
 interface SocketContextType {
@@ -225,10 +232,9 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Initialize with mock data
+  // Initialize with mock data (for demo sessions, statuses, etc.)
   useEffect(() => {
     if (user) {
-      // Add some mock sessions for demo
       setSessionHistory([
         {
           id: 'session-1',
@@ -255,7 +261,6 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         }
       ]);
 
-      // Set mock user statuses
       setUserStatuses({
         'd1': 'online',
         'p1': 'online',
@@ -268,33 +273,29 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     let socketInstance: Socket;
 
     if (user) {
-      // In a real app, connect to your actual Socket.io server
+      // In a real app, connect to your actual Socket.IO server.
       socketInstance = createMockSocket();
       
       socketInstance.on('connect', () => {
         console.log('Socket connected');
         setIsConnected(true);
         
-        // Join room with user ID
-        socketInstance.emit('join', { userId: user.id, userRole: user.role });
+        // Join a common room (e.g., "chat_room")
+        socketInstance.emit('joinRoom', 'chat_room');
         
-        // Update user status to online
+        // Update user status to online locally and broadcast it.
         if (user.id) {
           setUserStatuses(prev => ({
             ...prev,
             [user.id]: 'online'
           }));
         }
-        
-        // Broadcast status change
         socketInstance.emit('user:status', { userId: user.id, status: 'online' });
       });
       
       socketInstance.on('disconnect', () => {
         console.log('Socket disconnected');
         setIsConnected(false);
-        
-        // Update user status to offline
         if (user.id) {
           setUserStatuses(prev => ({
             ...prev,
@@ -305,19 +306,12 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       
       socketInstance.on('message', (data) => {
         console.log('Message received:', data);
-        
-        // Add to chat history
         setChatHistory(prev => [
           ...prev.filter(msg => msg.id !== data.id), // remove duplicates
-          {
-            ...data,
-            fromSelf: data.from === user.id
-          }
+          { ...data, fromSelf: data.from === user.id }
         ]);
         
-        // If message is not from self, show notification
         if (data.from !== user.id) {
-          // Show browser notification if supported
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('New Message', {
               body: data.message,
@@ -325,13 +319,11 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
             });
           }
           
-          // Show toast notification
           toast({
             title: "New Message",
             description: `${data.fromName || 'Someone'}: ${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}`,
           });
           
-          // Add to notifications
           const notificationId = `notification-${Date.now()}`;
           setNotifications(prev => [
             {
@@ -344,7 +336,6 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
             ...prev
           ]);
           
-          // Play notification sound
           playNotificationSound();
         }
       });
@@ -359,8 +350,6 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       
       socketInstance.on('file:shared', (data) => {
         console.log('File shared:', data);
-        
-        // Add to chat history as a message with attachment
         setChatHistory(prev => [
           ...prev,
           {
@@ -380,14 +369,12 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
           }
         ]);
         
-        // Notification for file share
         if (data.from !== user.id) {
           toast({
             title: "File Received",
             description: `${data.fromName || 'Someone'} shared a file: ${data.file.name}`,
           });
           
-          // Add to notifications
           const notificationId = `notification-${Date.now()}`;
           setNotifications(prev => [
             {
@@ -406,23 +393,15 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       
       socketInstance.on('session:scheduled', (data) => {
         console.log('Session scheduled:', data);
-        
-        // Check if this session already exists
         const sessionExists = sessionHistory.some(session => session.id === data.id);
-        
         if (!sessionExists) {
           setSessionHistory(prev => [...prev, data]);
-          
-          // Notify if this session is for the current user
           if (data.doctorId === user.id || data.patientId === user.id) {
             const otherName = data.doctorId === user.id ? data.patientName : data.doctorName;
-            
             toast({
               title: "New Session Scheduled",
               description: `A new ${data.type} session has been scheduled with ${otherName}`,
             });
-            
-            // Add to notifications
             const notificationId = `notification-${Date.now()}`;
             setNotifications(prev => [
               {
@@ -434,7 +413,6 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
               },
               ...prev
             ]);
-            
             playNotificationSound();
           }
         }
@@ -442,23 +420,16 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       
       socketInstance.on('session:updated', (data) => {
         console.log('Session updated:', data);
-        
         setSessionHistory(prev => 
-          prev.map(session => 
-            session.id === data.id ? { ...session, ...data } : session
-          )
+          prev.map(session => session.id === data.id ? { ...session, ...data } : session)
         );
         
-        // Notify if this session is for the current user
         if (data.doctorId === user.id || data.patientId === user.id) {
           const otherName = data.doctorId === user.id ? data.patientName : data.doctorName;
-          
           toast({
             title: "Session Updated",
             description: `Your session with ${otherName} has been updated to ${data.status}`,
           });
-          
-          // Add to notifications
           const notificationId = `notification-${Date.now()}`;
           setNotifications(prev => [
             {
@@ -470,7 +441,6 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
             },
             ...prev
           ]);
-          
           playNotificationSound();
         }
       });
@@ -478,21 +448,16 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       socketInstance.on('call:incoming', (callData) => {
         console.log('Incoming call:', callData);
         setIncomingCall(callData);
-        
-        // Set user status to busy
         if (user.id) {
           setUserStatuses(prev => ({
             ...prev,
             [user.id]: 'busy'
           }));
         }
-        
-        // Notify with sound and toast
         toast({
           title: "Incoming Call",
           description: `Call from ${callData.caller.name}`,
         });
-        
         playNotificationSound();
       });
       
@@ -500,15 +465,12 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         console.log('Call accepted:', callData);
         setActiveCall(callData);
         setIncomingCall(null);
-        
-        // Set user status to busy
         if (user.id) {
           setUserStatuses(prev => ({
             ...prev,
             [user.id]: 'busy'
           }));
         }
-        
         toast({
           title: "Call Connected",
           description: `You are now connected with ${callData.receiver.name}`,
@@ -519,15 +481,12 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         console.log('Call rejected:', callData);
         setActiveCall(null);
         setIncomingCall(null);
-        
-        // Reset user status to online
         if (user.id) {
           setUserStatuses(prev => ({
             ...prev,
             [user.id]: 'online'
           }));
         }
-        
         toast({
           title: "Call Rejected",
           description: `${callData.receiver.name} is unavailable at the moment`,
@@ -538,15 +497,12 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         console.log('Call ended');
         setActiveCall(null);
         setIncomingCall(null);
-        
-        // Reset user status to online
         if (user.id) {
           setUserStatuses(prev => ({
             ...prev,
             [user.id]: 'online'
           }));
         }
-        
         toast({
           title: "Call Ended",
           description: "The call has ended",
@@ -554,8 +510,6 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       });
       
       setSocket(socketInstance);
-      
-      // Handle browser notifications
       requestNotificationPermission();
     }
 
@@ -566,14 +520,14 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [user, toast]);
 
-  // Helper function to request notification permission
+  // Request notification permission from the user.
   const requestNotificationPermission = () => {
     if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
       Notification.requestPermission();
     }
   };
   
-  // Play notification sound
+  // Play a notification sound.
   const playNotificationSound = () => {
     try {
       const audio = new Audio('/notification.mp3');
@@ -586,21 +540,21 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
   const sendMessage = (to: string, message: string, attachments?: Attachment[]) => {
     if (socket && isConnected && user) {
       const messageId = `msg-${Date.now()}-${Math.random()}`;
-      
-      const messageData: Message = {
+      const messageData: Message & { room: string } = {
         id: messageId,
         from: user.id,
         to,
         message,
         timestamp: new Date().toISOString(),
         fromSelf: true,
-        attachments
+        attachments,
+        room: 'chat_room'
       };
       
-      // Add to chat history immediately
+      // Immediately update local chat history.
       setChatHistory(prev => [...prev, messageData]);
       
-      // Send the actual message to the recipient
+      // Emit the message so it gets broadcast to all sockets in the room.
       socket.emit('message', {
         ...messageData,
         fromName: user.name
@@ -615,30 +569,20 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     if (socket && isConnected && user) {
       const callData: CallData = {
         callId: `call-${Date.now()}`,
-        caller: {
-          id: user.id,
-          name: user.name,
-          role: user.role
-        },
+        caller: { id: user.id, name: user.name, role: user.role },
         receiver: { id: to, name: '', role: user.role === 'doctor' ? 'patient' : 'doctor' },
         timestamp: new Date().toISOString()
       };
       
       socket.emit('call:initiate', callData);
-      
-      // Set user status to busy
       setUserStatuses(prev => ({
         ...prev,
         [user.id]: 'busy'
       }));
       
-      // For mock behavior
-      setActiveCall({
-        ...callData,
-        status: 'calling'
-      });
+      setActiveCall({ ...callData, status: 'calling' });
       
-      // Simulate call acceptance after 2 seconds for demo
+      // Simulate call acceptance after 2 seconds for demo purposes.
       setTimeout(() => {
         socket.emit('call:accepted', {
           ...callData,
@@ -659,22 +603,11 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
   const acceptCall = (callId: string) => {
     if (socket && isConnected && incomingCall && incomingCall.callId === callId) {
       socket.emit('call:accept', { callId });
-      
-      // Set user status to busy
       if (user?.id) {
-        setUserStatuses(prev => ({
-          ...prev,
-          [user.id]: 'busy'
-        }));
+        setUserStatuses(prev => ({ ...prev, [user.id]: 'busy' }));
       }
-      
-      // For mock behavior
-      setActiveCall({
-        ...incomingCall,
-        status: 'active'
-      });
+      setActiveCall({ ...incomingCall, status: 'active' });
       setIncomingCall(null);
-      
       return true;
     }
     return false;
@@ -684,15 +617,9 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     if (socket && isConnected && incomingCall && incomingCall.callId === callId) {
       socket.emit('call:reject', { callId });
       setIncomingCall(null);
-      
-      // Reset user status to online
       if (user?.id) {
-        setUserStatuses(prev => ({
-          ...prev,
-          [user.id]: 'online'
-        }));
+        setUserStatuses(prev => ({ ...prev, [user.id]: 'online' }));
       }
-      
       return true;
     }
     return false;
@@ -702,15 +629,9 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     if (socket && isConnected && activeCall) {
       socket.emit('call:end', { callId: activeCall.callId });
       setActiveCall(null);
-      
-      // Reset user status to online
       if (user?.id) {
-        setUserStatuses(prev => ({
-          ...prev,
-          [user.id]: 'online'
-        }));
+        setUserStatuses(prev => ({ ...prev, [user.id]: 'online' }));
       }
-      
       return true;
     }
     return false;
@@ -718,12 +639,8 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
   
   const scheduleSession = (session: Session) => {
     if (socket && isConnected && user) {
-      // Add to session history immediately
       setSessionHistory(prev => [...prev, session]);
-      
-      // Emit the event
       socket.emit('session:schedule', session);
-      
       return true;
     }
     return false;
@@ -731,16 +648,8 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
   
   const updateSessionStatus = (sessionId: string, status: Session['status']) => {
     if (socket && isConnected && user) {
-      // Update session history immediately
-      setSessionHistory(prev => 
-        prev.map(session => 
-          session.id === sessionId ? { ...session, status } : session
-        )
-      );
-      
-      // Emit the event
+      setSessionHistory(prev => prev.map(session => session.id === sessionId ? { ...session, status } : session));
       socket.emit('session:update', { sessionId, status });
-      
       return true;
     }
     return false;
@@ -748,13 +657,8 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
   
   const shareFile = async (to: string, file: File): Promise<boolean> => {
     if (socket && isConnected && user) {
-      // In a real app, you would upload the file to a server here
-      // For demo purposes, we'll create a URL and simulate sharing
-      
       const fileId = `file-${Date.now()}`;
       const fileUrl = URL.createObjectURL(file);
-      
-      // Prepare file data
       const fileData = {
         fileId,
         from: user.id,
@@ -769,10 +673,8 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         timestamp: new Date().toISOString()
       };
       
-      // Emit file shared event
       socket.emit('file:share', fileData);
       
-      // Create attachment for message
       const attachment: Attachment = {
         id: fileId,
         type: file.type.startsWith('image/') ? 'image' : 'document',
@@ -781,26 +683,18 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         size: file.size
       };
       
-      // Send a message with the attachment
       sendMessage(to, `Shared file: ${file.name}`, [attachment]);
-      
       return true;
     }
     return false;
   };
   
   const markNotificationRead = (id: string) => {
-    setNotifications(prev => 
-      prev.map(notification => 
-        notification.id === id ? { ...notification, read: true } : notification
-      )
-    );
+    setNotifications(prev => prev.map(notification => notification.id === id ? { ...notification, read: true } : notification));
   };
   
   const markAllNotificationsRead = () => {
-    setNotifications(prev => 
-      prev.map(notification => ({ ...notification, read: true }))
-    );
+    setNotifications(prev => prev.map(notification => ({ ...notification, read: true })));
   };
 
   const value = {
