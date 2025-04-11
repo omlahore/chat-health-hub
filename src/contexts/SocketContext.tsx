@@ -1,4 +1,3 @@
-
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
@@ -23,6 +22,7 @@ interface SocketContextType {
   scheduleSession: (session: Session) => boolean;
   updateSessionStatus: (sessionId: string, status: Session['status']) => boolean;
   shareFile: (to: string, file: File) => Promise<boolean>;
+  setDoctorAvailability: (doctorId: string, availability: Record<string, any>) => boolean;
   activeCall: CallData | null;
   incomingCall: CallData | null;
   userStatuses: Record<string, 'online' | 'offline' | 'busy'>;
@@ -347,6 +347,32 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         });
       });
 
+      socketInstance.on('availability:updated', (data) => {
+        console.log('Availability updated:', data);
+        
+        // If this is for this doctor, update slots
+        if (data.doctorId === user.id) {
+          setAvailableSlots(data.slots);
+          
+          toast({
+            title: "Availability Updated",
+            description: "Your availability settings have been updated",
+          });
+          
+          const notificationId = `notification-${Date.now()}`;
+          setNotifications(prev => [
+            {
+              id: notificationId,
+              title: 'Availability Updated',
+              message: "Your availability settings have been updated",
+              read: false,
+              timestamp: new Date().toISOString()
+            },
+            ...prev
+          ]);
+        }
+      });
+
       setSocket(socketInstance);
       requestNotificationPermission();
     }
@@ -527,6 +553,17 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     return false;
   };
 
+  const setDoctorAvailability = (doctorId: string, availability: Record<string, any>) => {
+    if (socket && isConnected && user) {
+      socket.emit('availability:set', {
+        doctorId,
+        availability
+      });
+      return true;
+    }
+    return false;
+  };
+
   const markNotificationRead = (id: string) => {
     setNotifications(prev => prev.map(notification => notification.id === id ? { ...notification, read: true } : notification));
   };
@@ -546,6 +583,7 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     scheduleSession,
     updateSessionStatus,
     shareFile,
+    setDoctorAvailability,
     activeCall,
     incomingCall,
     userStatuses,

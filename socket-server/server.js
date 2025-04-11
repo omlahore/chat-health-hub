@@ -33,7 +33,66 @@ const scheduledSessions = [];
 // Each doctor has available slots for the next 7 days from 9 AM to 5 PM, 30 min each
 const doctorAvailableSlots = {};
 
+// Doctor availability schedule - NEW
+const doctorAvailability = {};
+
 function generateAvailableSlots(doctorId) {
+  if (!doctorAvailability[doctorId]) {
+    // If no custom availability is set, generate default slots
+    return generateDefaultSlots(doctorId);
+  }
+  
+  const slots = [];
+  
+  // Generate slots based on doctor's defined availability
+  Object.entries(doctorAvailability[doctorId]).forEach(([dateStr, timeRanges]) => {
+    const date = new Date(dateStr);
+    
+    timeRanges.forEach(range => {
+      const startParts = range.start.split(':');
+      const endParts = range.end.split(':');
+      
+      const startHour = parseInt(startParts[0]);
+      const startMinute = parseInt(startParts[1]);
+      const endHour = parseInt(endParts[0]);
+      const endMinute = parseInt(endParts[1]);
+      
+      // Generate 30-min slots within this range
+      let currentHour = startHour;
+      let currentMinute = startMinute;
+      
+      while (
+        currentHour < endHour || 
+        (currentHour === endHour && currentMinute < endMinute)
+      ) {
+        const slotDate = new Date(date);
+        slotDate.setHours(currentHour, currentMinute, 0, 0);
+        
+        // Skip slots in the past
+        if (slotDate > new Date()) {
+          slots.push({
+            doctorId,
+            startTime: slotDate.toISOString(),
+            duration: 30, // minutes
+            available: true
+          });
+        }
+        
+        // Move to next slot
+        currentMinute += 30;
+        if (currentMinute >= 60) {
+          currentHour += 1;
+          currentMinute = 0;
+        }
+      }
+    });
+  });
+  
+  doctorAvailableSlots[doctorId] = slots;
+  return slots;
+}
+
+function generateDefaultSlots(doctorId) {
   if (doctorAvailableSlots[doctorId]) return doctorAvailableSlots[doctorId];
   
   const slots = [];
@@ -126,6 +185,29 @@ io.on('connection', (socket) => {
     console.log(`Getting slots for doctor: ${doctorId}`);
     const availableSlots = updateSlotAvailability(doctorId);
     socket.emit('slots:list', availableSlots);
+  });
+
+  // NEW - Set doctor availability
+  socket.on('availability:set', (data) => {
+    const { doctorId, availability } = data;
+    console.log(`Setting availability for doctor: ${doctorId}`, availability);
+    
+    // Store the doctor's availability
+    doctorAvailability[doctorId] = availability;
+    
+    // Regenerate available slots based on new availability
+    generateAvailableSlots(doctorId);
+    
+    // Send updated slots back
+    const updatedSlots = updateSlotAvailability(doctorId);
+    socket.emit('slots:list', updatedSlots);
+    
+    // Broadcast to all sockets
+    io.emit('availability:updated', {
+      doctorId,
+      availability: doctorAvailability[doctorId],
+      slots: updatedSlots
+    });
   });
 
   // Handle session scheduling
@@ -244,6 +326,20 @@ app.get('/api/doctor/:doctorId/slots', (req, res) => {
   const doctorId = req.params.doctorId;
   const availableSlots = updateSlotAvailability(doctorId);
   res.json(availableSlots);
+});
+
+// === API endpoint to get doctor availability ===
+app.get('/api/doctor/:doctorId/availability', (req, res) => {
+  const doctorId = req.params.doctorId;
+  res.json(doctorAvailability[doctorId] || {});
+});
+
+// === API endpoint to set doctor availability ===
+app.post('/api/doctor/:doctorId/availability', (req, res) => {
+  const doctorId = req.params.doctorId;
+  doctorAvailability[doctorId] = req.body;
+  generateAvailableSlots(doctorId);
+  res.json(doctorAvailability[doctorId]);
 });
 
 // === Health Check ===

@@ -11,11 +11,12 @@ import NotificationsPopover from '@/components/NotificationsPopover';
 import DigitalPrescription from '@/components/DigitalPrescription';
 import TranslationToggle from '@/components/TranslationToggle';
 import AppointmentCalendar from '@/components/AppointmentCalendar';
+import DoctorAvailabilityManager from '@/components/DoctorAvailabilityManager';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { LogOut, MessageSquare, Phone, Video, Calendar, History, User, FileText } from 'lucide-react';
-import { useToast } from "@/components/ui/use-toast";
+import { LogOut, MessageSquare, Phone, Video, Calendar, History, User, FileText, Clock } from 'lucide-react';
+import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from 'framer-motion';
 import { Prescription } from '@/types';
 
@@ -29,7 +30,7 @@ const DoctorDashboard = () => {
   const { user, logout } = useAuth();
   const { activeCall, incomingCall, initiateCall, userStatuses } = useSocket();
   const [selectedPatient, setSelectedPatient] = useState(patients[0]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions' | 'calendar'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions' | 'calendar' | 'availability'>('dashboard');
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const { toast } = useToast();
 
@@ -60,7 +61,7 @@ const DoctorDashboard = () => {
     setActiveTab('chat');
   };
 
-  const handleTabChange = (value: 'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions' | 'calendar') => {
+  const handleTabChange = (value: 'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions' | 'calendar' | 'availability') => {
     if (activeCall && value !== 'video') {
       toast({
         title: "Active Call",
@@ -118,7 +119,7 @@ const DoctorDashboard = () => {
         <div className="max-w-7xl mx-auto">
           <Tabs 
             value={activeTab} 
-            onValueChange={(value) => handleTabChange(value as 'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions' | 'calendar')} 
+            onValueChange={(value) => handleTabChange(value as any)} 
             className="mb-6"
           >
             <TabsList className="bg-white/70 backdrop-blur-sm">
@@ -136,6 +137,14 @@ const DoctorDashboard = () => {
               >
                 <Calendar className="h-4 w-4 mr-2" />
                 Calendar
+              </TabsTrigger>
+              
+              <TabsTrigger 
+                value="availability" 
+                className="data-[state=active]:bg-medilink-primary data-[state=active]:text-white"
+              >
+                <Clock className="h-4 w-4 mr-2" />
+                Availability
               </TabsTrigger>
               
               {selectedPatient && (
@@ -265,6 +274,19 @@ const DoctorDashboard = () => {
                   className="h-full overflow-auto"
                 >
                   <AppointmentCalendar />
+                </motion.div>
+              )}
+              
+              {activeTab === 'availability' && (
+                <motion.div
+                  key="availability"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="h-full overflow-auto"
+                >
+                  <DoctorAvailabilityManager doctorId={user?.id || 'd1'} />
                 </motion.div>
               )}
               
