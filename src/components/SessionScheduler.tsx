@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Button } from '@/components/ui/button';
@@ -21,9 +21,10 @@ import {
 import { useSocket } from '@/contexts/SocketContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/components/ui/use-toast';
-import { CalendarIcon, Clock } from 'lucide-react';
+import { CalendarIcon, Clock, AlertCircle } from 'lucide-react';
 import { Session } from '@/types';
 import { motion } from 'framer-motion';
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface SessionSchedulerProps {
   recipientId: string;
@@ -37,9 +38,37 @@ const SessionScheduler = ({ recipientId, recipientName, onScheduled }: SessionSc
   const [duration, setDuration] = useState<string>('30');
   const [type, setType] = useState<'video' | 'chat'>('video');
   const [notes, setNotes] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
-  const { scheduleSession } = useSocket();
+  const { scheduleSession, sessionHistory } = useSocket();
   const { toast } = useToast();
+
+  // Clear error when inputs change
+  useEffect(() => {
+    if (error) setError(null);
+  }, [date, time, duration]);
+
+  const checkForConflicts = (scheduledAt: Date, durationMinutes: number): boolean => {
+    if (!sessionHistory.length) return false;
+    
+    const startTime = scheduledAt.getTime();
+    const endTime = startTime + (durationMinutes * 60 * 1000);
+    
+    return sessionHistory.some(session => {
+      // Skip cancelled sessions
+      if (session.status === 'cancelled') return false;
+      
+      const sessionStart = new Date(session.scheduledAt).getTime();
+      const sessionEnd = sessionStart + (session.duration * 60 * 1000);
+      
+      // Check if there's any overlap between the sessions
+      return (
+        (startTime >= sessionStart && startTime < sessionEnd) || // New session starts during existing session
+        (endTime > sessionStart && endTime <= sessionEnd) || // New session ends during existing session
+        (startTime <= sessionStart && endTime >= sessionEnd) // New session completely contains existing session
+      );
+    });
+  };
 
   const handleScheduleSession = () => {
     if (!date || !user) return;
@@ -48,6 +77,12 @@ const SessionScheduler = ({ recipientId, recipientName, onScheduled }: SessionSc
     const [hours, minutes] = time.split(':').map(Number);
     const scheduledAt = new Date(date);
     scheduledAt.setHours(hours, minutes);
+
+    // Check for conflicts
+    if (checkForConflicts(scheduledAt, parseInt(duration))) {
+      setError(`This time slot is already booked. Please select a different time.`);
+      return;
+    }
     
     const sessionData: Session = {
       id: `session-${Date.now()}`,
@@ -88,6 +123,13 @@ const SessionScheduler = ({ recipientId, recipientName, onScheduled }: SessionSc
       className="space-y-4"
     >
       <h3 className="text-lg font-medium">Schedule a Session with {recipientName}</h3>
+      
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4 mr-2" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       
       <Card className="p-4 space-y-4">
         <div className="grid grid-cols-2 gap-4">

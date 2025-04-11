@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSocket } from '@/contexts/SocketContext';
@@ -11,6 +10,7 @@ import StatusIndicator from '@/components/StatusIndicator';
 import NotificationsPopover from '@/components/NotificationsPopover';
 import DigitalPrescription from '@/components/DigitalPrescription';
 import TranslationToggle from '@/components/TranslationToggle';
+import AppointmentCalendar from '@/components/AppointmentCalendar';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -29,7 +29,7 @@ const DoctorDashboard = () => {
   const { user, logout } = useAuth();
   const { activeCall, incomingCall, initiateCall, userStatuses } = useSocket();
   const [selectedPatient, setSelectedPatient] = useState(patients[0]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions' | 'calendar'>('dashboard');
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const { toast } = useToast();
 
@@ -60,7 +60,7 @@ const DoctorDashboard = () => {
     setActiveTab('chat');
   };
 
-  const handleTabChange = (value: 'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions') => {
+  const handleTabChange = (value: 'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions' | 'calendar') => {
     if (activeCall && value !== 'video') {
       toast({
         title: "Active Call",
@@ -118,7 +118,7 @@ const DoctorDashboard = () => {
         <div className="max-w-7xl mx-auto">
           <Tabs 
             value={activeTab} 
-            onValueChange={(value) => handleTabChange(value as 'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions')} 
+            onValueChange={(value) => handleTabChange(value as 'dashboard' | 'chat' | 'video' | 'schedule' | 'history' | 'prescriptions' | 'calendar')} 
             className="mb-6"
           >
             <TabsList className="bg-white/70 backdrop-blur-sm">
@@ -128,6 +128,14 @@ const DoctorDashboard = () => {
               >
                 <User className="h-4 w-4 mr-2" />
                 Patients
+              </TabsTrigger>
+              
+              <TabsTrigger 
+                value="calendar" 
+                className="data-[state=active]:bg-medilink-primary data-[state=active]:text-white"
+              >
+                <Calendar className="h-4 w-4 mr-2" />
+                Calendar
               </TabsTrigger>
               
               {selectedPatient && (
@@ -244,6 +252,19 @@ const DoctorDashboard = () => {
                       </Card>
                     ))}
                   </div>
+                </motion.div>
+              )}
+              
+              {activeTab === 'calendar' && (
+                <motion.div
+                  key="calendar"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="h-full overflow-auto"
+                >
+                  <AppointmentCalendar />
                 </motion.div>
               )}
               
