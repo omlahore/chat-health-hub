@@ -1,3 +1,4 @@
+
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
@@ -232,6 +233,29 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         }
       });
 
+      socketInstance.on('session:error', (data) => {
+        console.log('Session error:', data);
+        toast({
+          variant: "destructive",
+          title: "Booking Error",
+          description: data.error,
+        });
+
+        const notificationId = `notification-${Date.now()}`;
+        setNotifications(prev => [
+          {
+            id: notificationId,
+            title: 'Booking Error',
+            message: data.error,
+            read: false,
+            timestamp: new Date().toISOString()
+          },
+          ...prev
+        ]);
+
+        playNotificationSound();
+      });
+
       socketInstance.on('session:updated', (data) => {
         console.log('Session updated:', data);
         setSessionHistory(prev => 
@@ -453,7 +477,7 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 
   const scheduleSession = (session: Session) => {
     if (socket && isConnected && user) {
-      setSessionHistory(prev => [...prev, session]);
+      // Do not add session to history yet, we'll wait for server confirmation
       socket.emit('session:schedule', session);
       return true;
     }

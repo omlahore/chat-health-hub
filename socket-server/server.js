@@ -123,6 +123,7 @@ io.on('connection', (socket) => {
 
   // Get available slots for a doctor
   socket.on('slots:get', (doctorId) => {
+    console.log(`Getting slots for doctor: ${doctorId}`);
     const availableSlots = updateSlotAvailability(doctorId);
     socket.emit('slots:list', availableSlots);
   });

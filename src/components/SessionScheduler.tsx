@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { useSocket } from '@/contexts/SocketContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { CalendarIcon, Clock, AlertCircle } from 'lucide-react';
 import { Session } from '@/types';
 import { motion } from 'framer-motion';
@@ -67,27 +67,43 @@ const SessionScheduler = ({ recipientId, recipientName, onScheduled }: SessionSc
     
     // Listen for slots list
     const handleSlotsList = (slots: Slot[]) => {
+      console.log('Received slots:', slots);
       setAvailableSlots(slots);
     };
     
     // Listen for slots updates
     const handleSlotsUpdated = (data: { doctorId: string, slots: Slot[] }) => {
+      console.log('Slots updated:', data);
       if (data.doctorId === doctorId) {
         setAvailableSlots(data.slots);
       }
     };
     
+    // Listen for session errors
+    const handleSessionError = (data: { sessionId: string, error: string }) => {
+      console.log('Session error:', data);
+      setError(data.error);
+      toast({
+        variant: "destructive",
+        title: "Booking Error",
+        description: data.error,
+      });
+    };
+    
     socket.on('slots:list', handleSlotsList);
     socket.on('slots:updated', handleSlotsUpdated);
+    socket.on('session:error', handleSessionError);
     
     // Request slots for this doctor
+    console.log('Requesting slots for doctor:', doctorId);
     socket.emit('slots:get', doctorId);
     
     return () => {
       socket.off('slots:list', handleSlotsList);
       socket.off('slots:updated', handleSlotsUpdated);
+      socket.off('session:error', handleSessionError);
     };
-  }, [user, recipientId, socket]);
+  }, [user, recipientId, socket, toast]);
   
   // Filter available slots for the selected date
   useEffect(() => {
@@ -106,6 +122,7 @@ const SessionScheduler = ({ recipientId, recipientName, onScheduled }: SessionSc
       );
     });
     
+    console.log('Filtered slots:', filtered);
     setFilteredSlots(filtered);
     
     // Clear selected slot if it's not in the filtered list
@@ -142,20 +159,8 @@ const SessionScheduler = ({ recipientId, recipientName, onScheduled }: SessionSc
     // Schedule the session
     scheduleSession(sessionData);
     
-    toast({
-      title: "Session Scheduled",
-      description: `Your ${type} session has been scheduled for ${format(scheduledAt, 'PPP')} at ${format(scheduledAt, 'p')}`,
-    });
-    
-    if (onScheduled) {
-      onScheduled(sessionData);
-    }
-    
-    // Reset form
-    setDate(undefined);
-    setSelectedSlot(null);
-    setDuration('30');
-    setNotes('');
+    // Do not reset form or show success toast here
+    // We'll wait for the server response in the socket events
   };
 
   // Render time slot options
