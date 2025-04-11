@@ -12,7 +12,7 @@ const createRealSocket = (): Socket => {
 };
 
 interface SocketContextType {
-  socket: Socket | null;
+  socket: any; // Add socket property
   isConnected: boolean;
   sendMessage: (to: string, message: string, attachments?: Attachment[]) => boolean;
   initiateCall: (to: string) => string | null;
@@ -511,7 +511,7 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     setNotifications(prev => prev.map(notification => ({ ...notification, read: true })));
   };
 
-  const value = {
+  const contextValue: SocketContextType = {
     socket,
     isConnected,
     sendMessage,
@@ -532,7 +532,11 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     markAllNotificationsRead
   };
 
-  return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;
+  return (
+    <SocketContext.Provider value={contextValue}>
+      {children}
+    </SocketContext.Provider>
+  );
 };
 
 export const useSocket = () => {

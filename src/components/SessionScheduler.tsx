@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,15 @@ import { CalendarIcon, Clock, AlertCircle } from 'lucide-react';
 import { Session } from '@/types';
 import { motion } from 'framer-motion';
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+
+interface Slot {
+  doctorId: string;
+  startTime: string;
+  duration: number;
+  available: boolean;
+}
 
 interface SessionSchedulerProps {
   recipientId: string;
@@ -34,62 +43,95 @@ interface SessionSchedulerProps {
 
 const SessionScheduler = ({ recipientId, recipientName, onScheduled }: SessionSchedulerProps) => {
   const [date, setDate] = useState<Date | undefined>(undefined);
-  const [time, setTime] = useState<string>('09:00');
+  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [duration, setDuration] = useState<string>('30');
   const [type, setType] = useState<'video' | 'chat'>('video');
   const [notes, setNotes] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [availableSlots, setAvailableSlots] = useState<Slot[]>([]);
+  const [filteredSlots, setFilteredSlots] = useState<Slot[]>([]);
   const { user } = useAuth();
-  const { scheduleSession, sessionHistory } = useSocket();
+  const { socket, scheduleSession, sessionHistory } = useSocket();
   const { toast } = useToast();
 
   // Clear error when inputs change
   useEffect(() => {
     if (error) setError(null);
-  }, [date, time, duration]);
-
-  const checkForConflicts = (scheduledAt: Date, durationMinutes: number): boolean => {
-    if (!sessionHistory.length) return false;
+  }, [date, selectedSlot, duration]);
+  
+  // Get available slots from the server
+  useEffect(() => {
+    if (!user) return;
     
-    const startTime = scheduledAt.getTime();
-    const endTime = startTime + (durationMinutes * 60 * 1000);
+    const doctorId = user.role === 'doctor' ? user.id : recipientId;
     
-    return sessionHistory.some(session => {
-      // Skip cancelled sessions
-      if (session.status === 'cancelled') return false;
-      
-      const sessionStart = new Date(session.scheduledAt).getTime();
-      const sessionEnd = sessionStart + (session.duration * 60 * 1000);
-      
-      // Check if there's any overlap between the sessions
-      return (
-        (startTime >= sessionStart && startTime < sessionEnd) || // New session starts during existing session
-        (endTime > sessionStart && endTime <= sessionEnd) || // New session ends during existing session
-        (startTime <= sessionStart && endTime >= sessionEnd) // New session completely contains existing session
-      );
-    });
-  };
-
-  const handleScheduleSession = () => {
-    if (!date || !user) return;
+    // Listen for slots list
+    const handleSlotsList = (slots: Slot[]) => {
+      setAvailableSlots(slots);
+    };
     
-    // Create date with the selected time
-    const [hours, minutes] = time.split(':').map(Number);
-    const scheduledAt = new Date(date);
-    scheduledAt.setHours(hours, minutes);
-
-    // Check for conflicts
-    if (checkForConflicts(scheduledAt, parseInt(duration))) {
-      setError(`This time slot is already booked. Please select a different time.`);
+    // Listen for slots updates
+    const handleSlotsUpdated = (data: { doctorId: string, slots: Slot[] }) => {
+      if (data.doctorId === doctorId) {
+        setAvailableSlots(data.slots);
+      }
+    };
+    
+    socket.on('slots:list', handleSlotsList);
+    socket.on('slots:updated', handleSlotsUpdated);
+    
+    // Request slots for this doctor
+    socket.emit('slots:get', doctorId);
+    
+    return () => {
+      socket.off('slots:list', handleSlotsList);
+      socket.off('slots:updated', handleSlotsUpdated);
+    };
+  }, [user, recipientId, socket]);
+  
+  // Filter available slots for the selected date
+  useEffect(() => {
+    if (!date || !availableSlots.length) {
+      setFilteredSlots([]);
       return;
     }
     
+    const filtered = availableSlots.filter(slot => {
+      const slotDate = new Date(slot.startTime);
+      return (
+        slotDate.getDate() === date.getDate() &&
+        slotDate.getMonth() === date.getMonth() &&
+        slotDate.getFullYear() === date.getFullYear() &&
+        slot.available
+      );
+    });
+    
+    setFilteredSlots(filtered);
+    
+    // Clear selected slot if it's not in the filtered list
+    if (selectedSlot && !filtered.some(slot => slot.startTime === selectedSlot.startTime)) {
+      setSelectedSlot(null);
+    }
+  }, [date, availableSlots, selectedSlot]);
+
+  const handleScheduleSession = () => {
+    if (!date || !selectedSlot || !user) {
+      setError('Please select a date and time slot');
+      return;
+    }
+    
+    const scheduledAt = new Date(selectedSlot.startTime);
+    const doctorId = user.role === 'doctor' ? user.id : recipientId;
+    const patientId = user.role === 'patient' ? user.id : recipientId;
+    const doctorName = user.role === 'doctor' ? user.name : recipientName;
+    const patientName = user.role === 'patient' ? user.name : recipientName;
+    
     const sessionData: Session = {
       id: `session-${Date.now()}`,
-      doctorId: user.role === 'doctor' ? user.id : recipientId,
-      patientId: user.role === 'patient' ? user.id : recipientId,
-      doctorName: user.role === 'doctor' ? user.name : recipientName,
-      patientName: user.role === 'patient' ? user.name : recipientName,
+      doctorId,
+      patientId,
+      doctorName,
+      patientName,
       scheduledAt: scheduledAt.toISOString(),
       duration: parseInt(duration),
       status: 'scheduled',
@@ -111,9 +153,35 @@ const SessionScheduler = ({ recipientId, recipientName, onScheduled }: SessionSc
     
     // Reset form
     setDate(undefined);
-    setTime('09:00');
+    setSelectedSlot(null);
     setDuration('30');
     setNotes('');
+  };
+
+  // Render time slot options
+  const renderTimeSlots = () => {
+    if (!date) return <p className="text-muted-foreground">Select a date first</p>;
+    
+    if (filteredSlots.length === 0) {
+      return <p className="text-muted-foreground">No available slots for this date</p>;
+    }
+    
+    return (
+      <div className="grid grid-cols-3 gap-2 mt-2 max-h-60 overflow-y-auto">
+        {filteredSlots.map((slot, index) => (
+          <Button
+            key={index}
+            variant={selectedSlot?.startTime === slot.startTime ? "default" : "outline"}
+            className={`
+              ${selectedSlot?.startTime === slot.startTime ? 'bg-medilink-primary text-white' : 'hover:bg-medilink-secondary hover:text-medilink-primary'}
+            `}
+            onClick={() => setSelectedSlot(slot)}
+          >
+            {format(new Date(slot.startTime), 'h:mm a')}
+          </Button>
+        ))}
+      </div>
+    );
   };
 
   return (
@@ -132,47 +200,49 @@ const SessionScheduler = ({ recipientId, recipientName, onScheduled }: SessionSc
       )}
       
       <Card className="p-4 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="date">Date</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-full justify-start text-left font-normal"
-                  id="date"
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {date ? format(date, 'PPP') : <span>Pick a date</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={date}
-                  onSelect={setDate}
-                  disabled={(date) => date < new Date()}
-                  initialFocus
-                  className="pointer-events-auto"
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="time">Time</Label>
-            <div className="flex items-center space-x-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <Input
-                id="time"
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className="flex-1"
+        <div className="space-y-2">
+          <Label htmlFor="date">Select Date</Label>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-full justify-start text-left font-normal"
+                id="date"
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {date ? format(date, 'PPP') : <span>Pick a date</span>}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={date}
+                onSelect={setDate}
+                disabled={(date) => date < new Date()}
+                initialFocus
+                className="pointer-events-auto"
               />
-            </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+        
+        <div className="space-y-2">
+          <Label>Available Time Slots</Label>
+          <div className="min-h-20 border rounded-md p-2">
+            {renderTimeSlots()}
           </div>
         </div>
+        
+        <Separator />
+        
+        {selectedSlot && (
+          <div className="bg-medilink-secondary/30 p-3 rounded-md">
+            <p className="font-medium text-medilink-primary">Selected Slot</p>
+            <p className="text-sm">
+              {format(new Date(selectedSlot.startTime), 'PPP')} at {format(new Date(selectedSlot.startTime), 'h:mm a')}
+            </p>
+          </div>
+        )}
         
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -216,7 +286,7 @@ const SessionScheduler = ({ recipientId, recipientName, onScheduled }: SessionSc
         
         <Button 
           onClick={handleScheduleSession} 
-          disabled={!date}
+          disabled={!date || !selectedSlot}
           className="w-full bg-medilink-primary hover:bg-medilink-primary/90"
         >
           Schedule Session

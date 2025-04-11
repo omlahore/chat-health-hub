@@ -29,6 +29,84 @@ const projectId = 'medilink-bot-giwi';
 // Mock database for storing sessions
 const scheduledSessions = [];
 
+// Mock available slots for doctors
+// Each doctor has available slots for the next 7 days from 9 AM to 5 PM, 30 min each
+const doctorAvailableSlots = {};
+
+function generateAvailableSlots(doctorId) {
+  if (doctorAvailableSlots[doctorId]) return doctorAvailableSlots[doctorId];
+  
+  const slots = [];
+  const now = new Date();
+  
+  // Generate slots for next 7 days
+  for (let day = 0; day < 7; day++) {
+    const date = new Date(now);
+    date.setDate(now.getDate() + day);
+    
+    // 9 AM to 5 PM, 30 min slots
+    for (let hour = 9; hour < 17; hour++) {
+      for (let minute = 0; minute < 60; minute += 30) {
+        const slotDate = new Date(date);
+        slotDate.setHours(hour, minute, 0, 0);
+        
+        // Skip slots in the past
+        if (slotDate > now) {
+          slots.push({
+            doctorId,
+            startTime: slotDate.toISOString(),
+            duration: 30, // minutes
+            available: true
+          });
+        }
+      }
+    }
+  }
+  
+  doctorAvailableSlots[doctorId] = slots;
+  return slots;
+}
+
+// Update slot availability based on scheduled sessions
+function updateSlotAvailability(doctorId) {
+  if (!doctorAvailableSlots[doctorId]) {
+    generateAvailableSlots(doctorId);
+  }
+  
+  // Reset all slots to available
+  doctorAvailableSlots[doctorId].forEach(slot => {
+    slot.available = true;
+  });
+  
+  // Mark slots as unavailable based on scheduled sessions
+  scheduledSessions.forEach(session => {
+    // Skip cancelled sessions
+    if (session.status === 'cancelled') return;
+    
+    // Only check sessions for this doctor
+    if (session.doctorId !== doctorId) return;
+    
+    const sessionStart = new Date(session.scheduledAt).getTime();
+    const sessionEnd = sessionStart + (session.duration * 60 * 1000);
+    
+    doctorAvailableSlots[doctorId].forEach(slot => {
+      const slotStart = new Date(slot.startTime).getTime();
+      const slotEnd = slotStart + (slot.duration * 60 * 1000);
+      
+      // Check for overlap
+      if (
+        (slotStart >= sessionStart && slotStart < sessionEnd) || // Slot starts during session
+        (slotEnd > sessionStart && slotEnd <= sessionEnd) || // Slot ends during session
+        (slotStart <= sessionStart && slotEnd >= sessionEnd) // Slot completely contains session
+      ) {
+        slot.available = false;
+      }
+    });
+  });
+  
+  return doctorAvailableSlots[doctorId];
+}
+
 // === Socket.IO Events ===
 io.on('connection', (socket) => {
   console.log(`Socket connected: ${socket.id}`);
@@ -41,6 +119,12 @@ io.on('connection', (socket) => {
   socket.on('message', (data) => {
     console.log(`Message from ${data.sender}: ${data.message}`);
     io.to(data.room).emit('message', data);
+  });
+
+  // Get available slots for a doctor
+  socket.on('slots:get', (doctorId) => {
+    const availableSlots = updateSlotAvailability(doctorId);
+    socket.emit('slots:list', availableSlots);
   });
 
   // Handle session scheduling
@@ -60,6 +144,15 @@ io.on('connection', (socket) => {
       // No conflict, add to "database" and broadcast
       scheduledSessions.push(sessionData);
       io.emit('session:scheduled', sessionData);
+      
+      // Update slots availability
+      updateSlotAvailability(sessionData.doctorId);
+      
+      // Send updated slots to all clients
+      io.emit('slots:updated', {
+        doctorId: sessionData.doctorId,
+        slots: doctorAvailableSlots[sessionData.doctorId]
+      });
     }
   });
   
@@ -69,8 +162,19 @@ io.on('connection', (socket) => {
     const sessionIndex = scheduledSessions.findIndex(s => s.id === sessionId);
     
     if (sessionIndex !== -1) {
-      scheduledSessions[sessionIndex].status = status;
-      io.emit('session:updated', scheduledSessions[sessionIndex]);
+      const updatedSession = scheduledSessions[sessionIndex];
+      updatedSession.status = status;
+      scheduledSessions[sessionIndex] = updatedSession;
+      io.emit('session:updated', updatedSession);
+      
+      // Update slots availability
+      updateSlotAvailability(updatedSession.doctorId);
+      
+      // Send updated slots to all clients
+      io.emit('slots:updated', {
+        doctorId: updatedSession.doctorId,
+        slots: doctorAvailableSlots[updatedSession.doctorId]
+      });
     }
   });
 
@@ -132,6 +236,13 @@ app.post('/api/message', async (req, res) => {
 // === API endpoint to get all sessions ===
 app.get('/api/sessions', (req, res) => {
   res.json(scheduledSessions);
+});
+
+// === API endpoint to get available slots for a doctor ===
+app.get('/api/doctor/:doctorId/slots', (req, res) => {
+  const doctorId = req.params.doctorId;
+  const availableSlots = updateSlotAvailability(doctorId);
+  res.json(availableSlots);
 });
 
 // === Health Check ===

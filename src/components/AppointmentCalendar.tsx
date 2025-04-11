@@ -130,6 +130,7 @@ const AppointmentCalendar = () => {
             const isToday = isSameDay(day, new Date());
             const appointmentCount = getAppointmentCount(day);
             const dayStatus = getDayStatus(day);
+            const appointments = getDayAppointments(day);
             
             return (
               <div 
@@ -150,6 +151,40 @@ const AppointmentCalendar = () => {
                 `}>
                   {dayOfMonth}
                 </div>
+                
+                {/* Show mini appointment indicators */}
+                {appointments.length > 0 && (
+                  <div className="mt-1 space-y-1">
+                    {appointments.slice(0, 2).map((appointment, idx) => (
+                      <div 
+                        key={idx} 
+                        className="text-xs truncate"
+                        title={`${format(parseISO(appointment.scheduledAt), 'h:mm a')} - ${appointment.patientName}`}
+                      >
+                        <Badge 
+                          variant="outline"
+                          className={`
+                            text-[10px] px-1 mr-1
+                            ${appointment.status === 'completed' ? 'border-green-500 text-green-600' : ''}
+                            ${appointment.status === 'scheduled' ? 'border-blue-500 text-blue-600' : ''}
+                            ${appointment.status === 'cancelled' ? 'border-red-500 text-red-600' : ''}
+                          `}
+                        >
+                          {format(parseISO(appointment.scheduledAt), 'h:mm')}
+                        </Badge>
+                        <span className="text-[10px] truncate">
+                          {appointment.patientName.split(' ')[0]}
+                        </span>
+                      </div>
+                    ))}
+                    
+                    {appointments.length > 2 && (
+                      <div className="text-[10px] text-slate-500 italic">
+                        +{appointments.length - 2} more
+                      </div>
+                    )}
+                  </div>
+                )}
                 
                 {appointmentCount > 0 && (
                   <Badge 
