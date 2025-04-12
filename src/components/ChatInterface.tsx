@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { useSocket } from '@/contexts/SocketContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -134,7 +135,8 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
         fromSelf: true
       };
       
-      setMessages(prev => [...prev, newMessage]);
+      // This is now handled in the sendMessage function
+      // setMessages(prev => [...prev, newMessage]);
       
       setMessage('');
       
@@ -152,8 +154,6 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
           description: "Please try again",
           variant: "destructive"
         });
-        
-        setMessages(prev => prev.filter(msg => msg.id !== messageId));
       }
     } catch (error) {
       console.error('Failed to send message:', error);

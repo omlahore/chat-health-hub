@@ -1,19 +1,101 @@
-
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { useToast } from "@/hooks/use-toast";
 import { Message, Session, Attachment, CallData } from '@/types';
 
-// Create a real Socket.IO connection to your server
-const createRealSocket = (): Socket => {
-  return io('http://localhost:3000', {
-    transports: ['websocket'] // Optional: specify transport options if needed
-  });
+interface MockSocketType {
+  on: (event: string, callback: any) => void;
+  off: (event: string, callback: any) => void;
+  emit: (event: string, data?: any) => void;
+  disconnect: () => void;
+}
+
+const createMockSocket = (): MockSocketType => {
+  const eventHandlers: Record<string, Array<(data: any) => void>> = {};
+  
+  const mockSocket: MockSocketType = {
+    on: (event: string, callback: any) => {
+      if (!eventHandlers[event]) {
+        eventHandlers[event] = [];
+      }
+      eventHandlers[event].push(callback);
+    },
+    
+    off: (event: string, callback: any) => {
+      if (eventHandlers[event]) {
+        eventHandlers[event] = eventHandlers[event].filter(cb => cb !== callback);
+      }
+    },
+    
+    emit: (event: string, data: any = {}) => {
+      console.log(`Mock socket emitting: ${event}`, data);
+      
+      setTimeout(() => {
+        switch (event) {
+          case 'joinRoom':
+            break;
+            
+          case 'message':
+            if (eventHandlers['message']) {
+              eventHandlers['message'].forEach(handler => handler(data));
+            }
+            break;
+            
+          case 'file:share':
+            if (eventHandlers['file:shared']) {
+              eventHandlers['file:shared'].forEach(handler => handler(data));
+            }
+            break;
+            
+          case 'session:schedule':
+            if (eventHandlers['session:scheduled']) {
+              eventHandlers['session:scheduled'].forEach(handler => handler({
+                ...data,
+                id: `session-${Date.now()}`
+              }));
+            }
+            break;
+            
+          case 'call:initiate':
+            if (eventHandlers['call:accepted']) {
+              setTimeout(() => {
+                eventHandlers['call:accepted'].forEach(handler => handler(data));
+              }, 1000);
+            }
+            break;
+            
+          default:
+            if (eventHandlers[`${event}`]) {
+              eventHandlers[`${event}`].forEach(handler => handler(data));
+            }
+        }
+      }, 500);
+    },
+    
+    disconnect: () => {
+      Object.keys(eventHandlers).forEach(event => {
+        eventHandlers[event] = [];
+      });
+    }
+  };
+  
+  return mockSocket;
+};
+
+const createSocketConnection = (): Socket | MockSocketType => {
+  try {
+    return io('http://localhost:3000', {
+      transports: ['websocket']
+    });
+  } catch (error) {
+    console.log('Could not connect to real socket server, using mock');
+    return createMockSocket();
+  }
 };
 
 interface SocketContextType {
-  socket: any; // Add socket property
+  socket: any;
   isConnected: boolean;
   sendMessage: (to: string, message: string, attachments?: Attachment[]) => boolean;
   initiateCall: (to: string) => string | null;
@@ -37,7 +119,7 @@ interface SocketContextType {
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
 
 export const SocketProvider = ({ children }: { children: ReactNode }) => {
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [socket, setSocket] = useState<Socket | MockSocketType | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [activeCall, setActiveCall] = useState<CallData | null>(null);
   const [incomingCall, setIncomingCall] = useState<CallData | null>(null);
@@ -47,9 +129,8 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
   const [notifications, setNotifications] = useState<{ id: string; title: string; message: string; read: boolean; timestamp: string }[]>([]);
   const { user } = useAuth();
   const { toast } = useToast();
-  const [availableSlots, setAvailableSlots] = useState<any[]>([]); // Add this line to fix error
+  const [availableSlots, setAvailableSlots] = useState<any[]>([]);
 
-  // Initialize with mock session data for demo purposes
   useEffect(() => {
     if (user) {
       setSessionHistory([
@@ -59,7 +140,7 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
           patientId: 'p1',
           doctorName: 'Dr. Jane Wilson',
           patientName: 'John Doe',
-          scheduledAt: new Date(Date.now() + 86400000).toISOString(), // tomorrow
+          scheduledAt: new Date(Date.now() + 86400000).toISOString(),
           duration: 30,
           status: 'scheduled',
           type: 'video'
@@ -70,7 +151,7 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
           patientId: 'p1',
           doctorName: 'Dr. Jane Wilson',
           patientName: 'John Doe',
-          scheduledAt: new Date(Date.now() - 86400000).toISOString(), // yesterday
+          scheduledAt: new Date(Date.now() - 86400000).toISOString(),
           duration: 45,
           status: 'completed',
           type: 'chat',
@@ -87,66 +168,166 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
   }, [user]);
 
   useEffect(() => {
-    let socketInstance: Socket;
+    let socketInstance: Socket | MockSocketType;
 
     if (user) {
-      // Connect to the real Socket.IO server
-      socketInstance = createRealSocket();
+      socketInstance = createSocketConnection();
 
-      socketInstance.on('connect', () => {
-        console.log('Socket connected');
-        setIsConnected(true);
+      if ('on' in socketInstance) {
+        socketInstance.on('connect', () => {
+          console.log('Socket connected');
+          setIsConnected(true);
 
-        // Join a common room (e.g., "chat_room")
-        socketInstance.emit('joinRoom', 'chat_room');
+          socketInstance.emit('joinRoom', 'chat_room');
 
-        // Update local user status and broadcast it
-        if (user.id) {
-          setUserStatuses(prev => ({
-            ...prev,
-            [user.id]: 'online'
-          }));
-        }
-        socketInstance.emit('user:status', { userId: user.id, status: 'online' });
-      });
+          if (user.id) {
+            setUserStatuses(prev => ({
+              ...prev,
+              [user.id]: 'online'
+            }));
+          }
+          socketInstance.emit('user:status', { userId: user.id, status: 'online' });
+        });
 
-      socketInstance.on('disconnect', () => {
-        console.log('Socket disconnected');
-        setIsConnected(false);
-        if (user.id) {
-          setUserStatuses(prev => ({
-            ...prev,
-            [user.id]: 'offline'
-          }));
-        }
-      });
+        socketInstance.on('disconnect', () => {
+          console.log('Socket disconnected');
+          setIsConnected(false);
+          if (user.id) {
+            setUserStatuses(prev => ({
+              ...prev,
+              [user.id]: 'offline'
+            }));
+          }
+        });
 
-      socketInstance.on('message', (data) => {
-        console.log('Message received:', data);
-        setChatHistory(prev => [
-          ...prev.filter(msg => msg.id !== data.id), // remove duplicates if any
-          { ...data, fromSelf: data.from === user.id }
-        ]);
+        socketInstance.on('message', (data) => {
+          console.log('Message received:', data);
+          setChatHistory(prev => [
+            ...prev.filter(msg => msg.id !== data.id),
+            { ...data, fromSelf: data.from === user.id }
+          ]);
 
-        if (data.from !== user.id) {
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('New Message', {
-              body: data.message,
-              icon: '/favicon.ico'
+          if (data.from !== user.id) {
+            if ('Notification' in window && Notification.permission === 'granted') {
+              new Notification('New Message', {
+                body: data.message,
+                icon: '/favicon.ico'
+              });
+            }
+
+            toast({
+              title: "New Message",
+              description: `${data.fromName || 'Someone'}: ${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}`,
             });
-          }
 
+            const notificationId = `notification-${Date.now()}`;
+            setNotifications(prev => [
+              {
+                id: notificationId,
+                title: 'New Message',
+                message: `${data.fromName || 'Someone'}: ${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}`,
+                read: false,
+                timestamp: new Date().toISOString()
+              },
+              ...prev
+            ]);
+
+            playNotificationSound();
+          }
+        });
+
+        socketInstance.on('user:status', (data) => {
+          console.log('User status update:', data);
+          setUserStatuses(prev => ({
+            ...prev,
+            [data.userId]: data.status
+          }));
+        });
+
+        socketInstance.on('file:shared', (data) => {
+          console.log('File shared:', data);
+          setChatHistory(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}-${Math.random()}`,
+              from: data.from,
+              to: data.to,
+              message: `Shared file: ${data.file.name}`,
+              timestamp: new Date().toISOString(),
+              fromSelf: data.from === user.id,
+              attachments: [{
+                id: data.fileId,
+                type: data.file.type.startsWith('image/') ? 'image' : 'document',
+                url: data.file.url,
+                name: data.file.name,
+                size: data.file.size
+              }]
+            }
+          ]);
+
+          if (data.from !== user.id) {
+            toast({
+              title: "File Received",
+              description: `${data.fromName || 'Someone'} shared a file: ${data.file.name}`,
+            });
+
+            const notificationId = `notification-${Date.now()}`;
+            setNotifications(prev => [
+              {
+                id: notificationId,
+                title: 'File Received',
+                message: `${data.fromName || 'Someone'} shared a file: ${data.file.name}`,
+                read: false,
+                timestamp: new Date().toISOString()
+              },
+              ...prev
+            ]);
+
+            playNotificationSound();
+          }
+        });
+
+        socketInstance.on('session:scheduled', (data) => {
+          console.log('Session scheduled:', data);
+          const sessionExists = sessionHistory.some(session => session.id === data.id);
+          if (!sessionExists) {
+            setSessionHistory(prev => [...prev, data]);
+            if (data.doctorId === user.id || data.patientId === user.id) {
+              const otherName = data.doctorId === user.id ? data.patientName : data.doctorName;
+              toast({
+                title: "New Session Scheduled",
+                description: `A new ${data.type} session has been scheduled with ${otherName}`,
+              });
+              const notificationId = `notification-${Date.now()}`;
+              setNotifications(prev => [
+                {
+                  id: notificationId,
+                  title: 'New Session Scheduled',
+                  message: `A new ${data.type} session has been scheduled with ${otherName}`,
+                  read: false,
+                  timestamp: new Date().toISOString()
+                },
+                ...prev
+              ]);
+              playNotificationSound();
+            }
+          }
+        });
+
+        socketInstance.on('session:error', (data) => {
+          console.log('Session error:', data);
           toast({
-            title: "New Message",
-            description: `${data.fromName || 'Someone'}: ${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}`,
+            variant: "destructive",
+            title: "Booking Error",
+            description: data.error,
           });
 
           const notificationId = `notification-${Date.now()}`;
           setNotifications(prev => [
             {
               id: notificationId,
-              title: 'New Message',
-              message: `${data.fromName || 'Someone'}: ${data.message.substring(0, 50)}${data.message.length > 50 ? '...' : ''}`,
+              title: 'Booking Error',
+              message: data.error,
               read: false,
               timestamp: new Date().toISOString()
             },
@@ -154,77 +335,26 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
           ]);
 
           playNotificationSound();
-        }
-      });
+        });
 
-      socketInstance.on('user:status', (data) => {
-        console.log('User status update:', data);
-        setUserStatuses(prev => ({
-          ...prev,
-          [data.userId]: data.status
-        }));
-      });
+        socketInstance.on('session:updated', (data) => {
+          console.log('Session updated:', data);
+          setSessionHistory(prev => 
+            prev.map(session => session.id === data.id ? { ...session, ...data } : session)
+          );
 
-      socketInstance.on('file:shared', (data) => {
-        console.log('File shared:', data);
-        setChatHistory(prev => [
-          ...prev,
-          {
-            id: `msg-${Date.now()}-${Math.random()}`,
-            from: data.from,
-            to: data.to,
-            message: `Shared file: ${data.file.name}`,
-            timestamp: new Date().toISOString(),
-            fromSelf: data.from === user.id,
-            attachments: [{
-              id: data.fileId,
-              type: data.file.type.startsWith('image/') ? 'image' : 'document',
-              url: data.file.url,
-              name: data.file.name,
-              size: data.file.size
-            }]
-          }
-        ]);
-
-        if (data.from !== user.id) {
-          toast({
-            title: "File Received",
-            description: `${data.fromName || 'Someone'} shared a file: ${data.file.name}`,
-          });
-
-          const notificationId = `notification-${Date.now()}`;
-          setNotifications(prev => [
-            {
-              id: notificationId,
-              title: 'File Received',
-              message: `${data.fromName || 'Someone'} shared a file: ${data.file.name}`,
-              read: false,
-              timestamp: new Date().toISOString()
-            },
-            ...prev
-          ]);
-
-          playNotificationSound();
-        }
-      });
-
-      socketInstance.on('session:scheduled', (data) => {
-        console.log('Session scheduled:', data);
-        const sessionExists = sessionHistory.some(session => session.id === data.id);
-        if (!sessionExists) {
-          setSessionHistory(prev => [...prev, data]);
           if (data.doctorId === user.id || data.patientId === user.id) {
             const otherName = data.doctorId === user.id ? data.patientName : data.doctorName;
             toast({
-              title: "New Session Scheduled",
-              description: `A new ${data.type} session has been scheduled with ${otherName}`,
+              title: "Session Updated",
+              description: `Your session with ${otherName} has been updated to ${data.status}`,
             });
             const notificationId = `notification-${Date.now()}`;
             setNotifications(prev => [
               {
                 id: notificationId,
-                title: 'New Session Scheduled',
-                message: `A new ${data.type} session has been scheduled with ${otherName}`,
+                title: 'Session Updated',
+                message: `Your session with ${otherName} has been updated to ${data.status}`,
                 read: false,
                 timestamp: new Date().toISOString()
               },
@@ -232,168 +362,115 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
             ]);
             playNotificationSound();
           }
-        }
-      });
-
-      socketInstance.on('session:error', (data) => {
-        console.log('Session error:', data);
-        toast({
-          variant: "destructive",
-          title: "Booking Error",
-          description: data.error,
         });
 
-        const notificationId = `notification-${Date.now()}`;
-        setNotifications(prev => [
-          {
-            id: notificationId,
-            title: 'Booking Error',
-            message: data.error,
-            read: false,
-            timestamp: new Date().toISOString()
-          },
-          ...prev
-        ]);
-
-        playNotificationSound();
-      });
-
-      socketInstance.on('session:updated', (data) => {
-        console.log('Session updated:', data);
-        setSessionHistory(prev => 
-          prev.map(session => session.id === data.id ? { ...session, ...data } : session)
-        );
-
-        if (data.doctorId === user.id || data.patientId === user.id) {
-          const otherName = data.doctorId === user.id ? data.patientName : data.doctorName;
+        socketInstance.on('call:incoming', (callData) => {
+          console.log('Incoming call:', callData);
+          setIncomingCall(callData);
+          if (user.id) {
+            setUserStatuses(prev => ({
+              ...prev,
+              [user.id]: 'busy'
+            }));
+          }
           toast({
-            title: "Session Updated",
-            description: `Your session with ${otherName} has been updated to ${data.status}`,
+            title: "Incoming Call",
+            description: `Call from ${callData.caller.name}`,
           });
-          const notificationId = `notification-${Date.now()}`;
-          setNotifications(prev => [
-            {
-              id: notificationId,
-              title: 'Session Updated',
-              message: `Your session with ${otherName} has been updated to ${data.status}`,
-              read: false,
-              timestamp: new Date().toISOString()
-            },
-            ...prev
-          ]);
           playNotificationSound();
-        }
-      });
-
-      socketInstance.on('call:incoming', (callData) => {
-        console.log('Incoming call:', callData);
-        setIncomingCall(callData);
-        if (user.id) {
-          setUserStatuses(prev => ({
-            ...prev,
-            [user.id]: 'busy'
-          }));
-        }
-        toast({
-          title: "Incoming Call",
-          description: `Call from ${callData.caller.name}`,
         });
-        playNotificationSound();
-      });
 
-      socketInstance.on('call:accepted', (callData) => {
-        console.log('Call accepted:', callData);
-        setActiveCall(callData);
-        setIncomingCall(null);
-        if (user.id) {
-          setUserStatuses(prev => ({
-            ...prev,
-            [user.id]: 'busy'
-          }));
-        }
-        toast({
-          title: "Call Connected",
-          description: `You are now connected with ${callData.receiver.name}`,
-        });
-      });
-
-      socketInstance.on('call:rejected', (callData) => {
-        console.log('Call rejected:', callData);
-        setActiveCall(null);
-        setIncomingCall(null);
-        if (user.id) {
-          setUserStatuses(prev => ({
-            ...prev,
-            [user.id]: 'online'
-          }));
-        }
-        toast({
-          title: "Call Rejected",
-          description: `${callData.receiver.name} is unavailable at the moment`,
-        });
-      });
-
-      socketInstance.on('call:ended', () => {
-        console.log('Call ended');
-        setActiveCall(null);
-        setIncomingCall(null);
-        if (user.id) {
-          setUserStatuses(prev => ({
-            ...prev,
-            [user.id]: 'online'
-          }));
-        }
-        toast({
-          title: "Call Ended",
-          description: "The call has ended",
-        });
-      });
-
-      socketInstance.on('availability:updated', (data) => {
-        console.log('Availability updated:', data);
-        
-        // If this is for this doctor, update slots
-        if (data.doctorId === user.id) {
-          setAvailableSlots(data.slots);
-          
+        socketInstance.on('call:accepted', (callData) => {
+          console.log('Call accepted:', callData);
+          setActiveCall(callData);
+          setIncomingCall(null);
+          if (user.id) {
+            setUserStatuses(prev => ({
+              ...prev,
+              [user.id]: 'busy'
+            }));
+          }
           toast({
-            title: "Availability Updated",
-            description: "Your availability settings have been updated",
+            title: "Call Connected",
+            description: `You are now connected with ${callData.receiver.name}`,
           });
-          
-          const notificationId = `notification-${Date.now()}`;
-          setNotifications(prev => [
-            {
-              id: notificationId,
-              title: 'Availability Updated',
-              message: "Your availability settings have been updated",
-              read: false,
-              timestamp: new Date().toISOString()
-            },
-            ...prev
-          ]);
-        }
-      });
+        });
 
-      setSocket(socketInstance);
-      requestNotificationPermission();
+        socketInstance.on('call:rejected', (callData) => {
+          console.log('Call rejected:', callData);
+          setActiveCall(null);
+          setIncomingCall(null);
+          if (user.id) {
+            setUserStatuses(prev => ({
+              ...prev,
+              [user.id]: 'online'
+            }));
+          }
+          toast({
+            title: "Call Rejected",
+            description: `${callData.receiver.name} is unavailable at the moment`,
+          });
+        });
+
+        socketInstance.on('call:ended', () => {
+          console.log('Call ended');
+          setActiveCall(null);
+          setIncomingCall(null);
+          if (user.id) {
+            setUserStatuses(prev => ({
+              ...prev,
+              [user.id]: 'online'
+            }));
+          }
+          toast({
+            title: "Call Ended",
+            description: "The call has ended",
+          });
+        });
+
+        socketInstance.on('availability:updated', (data) => {
+          console.log('Availability updated:', data);
+          
+          if (data.doctorId === user.id) {
+            setAvailableSlots(data.slots);
+            
+            toast({
+              title: "Availability Updated",
+              description: "Your availability settings have been updated",
+            });
+            
+            const notificationId = `notification-${Date.now()}`;
+            setNotifications(prev => [
+              {
+                id: notificationId,
+                title: 'Availability Updated',
+                message: "Your availability settings have been updated",
+                read: false,
+                timestamp: new Date().toISOString()
+              },
+              ...prev
+            ]);
+          }
+        });
+
+        setSocket(socketInstance);
+        requestNotificationPermission();
+      }
     }
 
     return () => {
-      if (socketInstance) {
+      if (socketInstance && 'disconnect' in socketInstance) {
         socketInstance.disconnect();
       }
     };
   }, [user, toast]);
 
-  // Request notification permission from the user.
   const requestNotificationPermission = () => {
     if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
       Notification.requestPermission();
     }
   };
 
-  // Play a notification sound.
   const playNotificationSound = () => {
     try {
       const audio = new Audio('/notification.mp3');
@@ -403,10 +480,26 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const getRandomReply = () => {
+    const replies = [
+      "Thanks for your message!",
+      "I'll get back to you shortly.",
+      "Got it, let me check my schedule.",
+      "How are you feeling today?",
+      "When did the symptoms start?",
+      "Have you been taking your medication?",
+      "Let's schedule a follow-up soon.",
+      "I recommend getting some rest.",
+      "Stay hydrated and check your temperature regularly.",
+      "Your test results look good."
+    ];
+    return replies[Math.floor(Math.random() * replies.length)];
+  };
+
   const sendMessage = (to: string, message: string, attachments?: Attachment[]) => {
     if (socket && isConnected && user) {
       const messageId = `msg-${Date.now()}-${Math.random()}`;
-      const messageData: Message & { room: string } = {
+      const messageData: Message & { room?: string } = {
         id: messageId,
         from: user.id,
         to,
@@ -417,16 +510,33 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
         room: 'chat_room'
       };
       
-      // Immediately update local chat history.
       setChatHistory(prev => [...prev, messageData]);
       
-      // Emit the message so it gets broadcast to all sockets in the room.
-      socket.emit('message', {
-        ...messageData,
-        fromName: user.name
-      });
-      
-      return true;
+      if ('emit' in socket) {
+        const messageWithName = {
+          ...messageData,
+          fromName: user.name
+        };
+        
+        socket.emit('message', messageWithName);
+        
+        setTimeout(() => {
+          if (Math.random() > 0.7) {
+            const replyMessage = {
+              id: `msg-${Date.now()}-${Math.random()}`,
+              from: to,
+              to: user.id,
+              fromName: to === 'd1' ? 'Dr. Jane Wilson' : 'John Doe',
+              message: getRandomReply(),
+              timestamp: new Date().toISOString(),
+              room: 'chat_room'
+            };
+            socket.emit('message', replyMessage);
+          }
+        }, 2000 + Math.random() * 3000);
+        
+        return true;
+      }
     }
     return false;
   };
@@ -448,7 +558,6 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       
       setActiveCall({ ...callData, status: 'calling' });
       
-      // Simulate call acceptance after 2 seconds for demo purposes.
       setTimeout(() => {
         socket.emit('call:accepted', {
           ...callData,
@@ -505,7 +614,6 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
 
   const scheduleSession = (session: Session) => {
     if (socket && isConnected && user) {
-      // Do not add session to history yet, we'll wait for server confirmation
       socket.emit('session:schedule', session);
       return true;
     }
