@@ -7,7 +7,7 @@ import { getAnalytics } from 'firebase/analytics';
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Stethoscope, UserRound, Calendar, Video, MessageSquare, Lock, Users, Google } from "lucide-react";
+import { Stethoscope, UserRound, Calendar, Video, MessageSquare, Lock, Users, ExternalLink } from "lucide-react";
 
 // Firebase config
 const firebaseConfig = {
@@ -136,7 +136,7 @@ const HomePage: React.FC = () => {
             <Card className="hover-lift overflow-hidden border-blue-100 md:col-span-2 lg:col-span-1">
               <CardContent className="p-6 flex flex-col items-center text-center">
                 <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center mb-4">
-                  <Google className="h-6 w-6 text-blue-600" />
+                  <ExternalLink className="h-6 w-6 text-blue-600" />
                 </div>
                 <h3 className="font-semibold text-blue-900 mb-2">Google Sign In</h3>
                 <p className="text-sm text-gray-500 mb-4">Use your Google account to access MediLink</p>
