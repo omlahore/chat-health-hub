@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
@@ -8,6 +7,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Stethoscope, UserRound, Calendar, Video, MessageSquare, Lock, Users, ExternalLink } from "lucide-react";
+import { useAuth } from '@/contexts/AuthContext';
 
 // Firebase config
 const firebaseConfig = {
@@ -20,38 +20,73 @@ const firebaseConfig = {
   measurementId: 'G-0CXJ9HSV9R',
 };
 
-initializeApp(firebaseConfig);
-getAnalytics();
+const firebaseApp = initializeApp(firebaseConfig);
+getAnalytics(firebaseApp);
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { login } = useAuth();
+  const [isLoading, setIsLoading] = useState({
+    patient: false,
+    doctor: false,
+    google: false
+  });
 
-  const handlePatientLogin = () => {
+  const handlePatientLogin = async () => {
+    setIsLoading(prev => ({ ...prev, patient: true }));
+    
     toast({
       title: "Demo Patient Login",
       description: "Logging you in as a patient...",
     });
     
     // Demo login with preset credentials
-    setTimeout(() => {
-      navigate('/patient-dashboard');
-    }, 1000);
+    try {
+      const success = await login('patient', 'password', 'patient');
+      if (success) {
+        navigate('/patient-dashboard');
+      }
+    } catch (error) {
+      console.error('Login failed:', error);
+      toast({
+        title: "Login Failed",
+        description: "Unable to login as patient. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(prev => ({ ...prev, patient: false }));
+    }
   };
 
-  const handleDoctorLogin = () => {
+  const handleDoctorLogin = async () => {
+    setIsLoading(prev => ({ ...prev, doctor: true }));
+    
     toast({
       title: "Demo Doctor Login",
       description: "Logging you in as a doctor...",
     });
     
     // Demo login with preset credentials
-    setTimeout(() => {
-      navigate('/doctor-dashboard');
-    }, 1000);
+    try {
+      const success = await login('doctor', 'password', 'doctor');
+      if (success) {
+        navigate('/doctor-dashboard');
+      }
+    } catch (error) {
+      console.error('Login failed:', error);
+      toast({
+        title: "Login Failed",
+        description: "Unable to login as doctor. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(prev => ({ ...prev, doctor: false }));
+    }
   };
 
   const handleGoogleLogin = async () => {
+    setIsLoading(prev => ({ ...prev, google: true }));
     const auth = getAuth();
     const provider = new GoogleAuthProvider();
 
@@ -59,10 +94,23 @@ const HomePage: React.FC = () => {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       console.log('✅ Signed in with Google:', user);
+      
+      // Store user data in local storage for auth context to pick up
+      const userData = {
+        id: user.uid,
+        username: user.email || 'google-user',
+        role: 'patient', // Default role for Google sign-in users
+        name: user.displayName || 'Google User',
+        image: user.photoURL || undefined
+      };
+      
+      localStorage.setItem('medilink_user', JSON.stringify(userData));
+      
       toast({
         title: "Google Login Successful",
         description: "Welcome to MediLink!",
       });
+      
       navigate('/patient-dashboard');
     } catch (error) {
       console.error('❌ Google login failed:', error);
@@ -71,6 +119,8 @@ const HomePage: React.FC = () => {
         description: "Unable to login with Google. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(prev => ({ ...prev, google: false }));
     }
   };
 
@@ -109,8 +159,9 @@ const HomePage: React.FC = () => {
                 <Button 
                   onClick={handlePatientLogin} 
                   className="w-full bg-blue-600 hover:bg-blue-700"
+                  disabled={isLoading.patient}
                 >
-                  Try Patient Mode
+                  {isLoading.patient ? 'Logging in...' : 'Try Patient Mode'}
                 </Button>
               </CardContent>
             </Card>
@@ -126,8 +177,9 @@ const HomePage: React.FC = () => {
                 <Button 
                   onClick={handleDoctorLogin} 
                   className="w-full bg-green-600 hover:bg-green-700"
+                  disabled={isLoading.doctor}
                 >
-                  Try Doctor Mode
+                  {isLoading.doctor ? 'Logging in...' : 'Try Doctor Mode'}
                 </Button>
               </CardContent>
             </Card>
@@ -143,8 +195,9 @@ const HomePage: React.FC = () => {
                 <Button 
                   onClick={handleGoogleLogin} 
                   className="w-full bg-red-500 hover:bg-red-600"
+                  disabled={isLoading.google}
                 >
-                  Sign in with Google
+                  {isLoading.google ? 'Signing in...' : 'Sign in with Google'}
                 </Button>
               </CardContent>
             </Card>

@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from 'react';
 import { useSocket } from '@/contexts/SocketContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,6 +20,7 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSending, setIsSending] = useState(false);
   const { sendMessage, socket, userStatuses, chatHistory } = useSocket();
   const { user } = useAuth();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -29,67 +29,54 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
     [user.id, recipientId].sort().join('_') : // Create a consistent room ID regardless of who initiates
     '';
 
-  // Load chat history when recipient changes
   useEffect(() => {
-    // Clear messages when recipient changes
     setMessages([]);
     setIsLoading(true);
     
-    // Filter chat history for this conversation
     const relevantMessages = chatHistory.filter(
       msg => (msg.from === recipientId && msg.to === user?.id) ||
              (msg.from === user?.id && msg.to === recipientId)
     );
     
-    // Sort messages by timestamp
     const sortedMessages = [...relevantMessages].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
     
     console.log(`Loading ${sortedMessages.length} messages for chat between ${user?.id} and ${recipientId}`);
     
-    // Set messages with a slight delay to simulate loading
     setTimeout(() => {
       setMessages(sortedMessages);
       setIsLoading(false);
       
-      // Scroll to bottom after loading messages
       setTimeout(() => {
         if (scrollAreaRef.current) {
           scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
         }
       }, 100);
     }, 500);
-    
   }, [recipientId, user?.id, chatHistory]);
 
-  // Join chat room when component mounts
   useEffect(() => {
     if (socket && user && recipientId && chatRoomId) {
       console.log(`Joining chat room: ${chatRoomId}`);
       
-      // In a real implementation, you would join a room
-      // socket.emit('joinRoom', chatRoomId);
+      socket.emit('joinRoom', chatRoomId);
       
       return () => {
-        // In a real implementation, you would leave the room
-        // socket.emit('leaveRoom', chatRoomId);
+        socket.emit('leaveRoom', chatRoomId);
       };
     }
   }, [socket, user, recipientId, chatRoomId]);
 
-  // Listen for incoming messages
   useEffect(() => {
     if (!socket) return;
     
     const handleIncomingMessage = (data: any) => {
       console.log('Processing incoming message:', data);
       
-      // Only process messages that are meant for this conversation
       if ((data.from === recipientId && data.to === user?.id) || 
           (data.from === user?.id && data.to === recipientId)) {
         
-        // Check if the message already exists in our array
         const messageExists = messages.some(msg => msg.id === data.id);
         
         if (!messageExists) {
@@ -107,7 +94,6 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
             }
           ]);
           
-          // Play notification sound for incoming messages
           if (data.from !== user?.id) {
             playNotificationSound();
           }
@@ -124,30 +110,61 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
     };
   }, [socket, recipientId, user?.id, messages]);
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (scrollAreaRef.current && !isLoading) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
     }
   }, [messages, isLoading]);
 
-  const handleSendMessage = () => {
-    if (!message.trim() || !user) return;
+  const handleSendMessage = async () => {
+    if (!message.trim() || !user || isSending) return;
     
+    setIsSending(true);
     console.log(`Sending message to ${recipientId}: ${message}`);
     
-    // Send message through socket
-    const success = sendMessage(recipientId, message.trim());
-    
-    if (!success) {
+    try {
+      const messageId = `msg-${Date.now()}-${Math.random()}`;
+      
+      const newMessage = {
+        id: messageId,
+        from: user.id,
+        to: recipientId,
+        message: message.trim(),
+        timestamp: new Date().toISOString(),
+        fromSelf: true
+      };
+      
+      setMessages(prev => [...prev, newMessage]);
+      
+      setMessage('');
+      
+      setTimeout(() => {
+        if (scrollAreaRef.current) {
+          scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+        }
+      }, 10);
+      
+      const success = sendMessage(recipientId, newMessage.message);
+      
+      if (!success) {
+        toast({
+          title: "Message not sent",
+          description: "Please try again",
+          variant: "destructive"
+        });
+        
+        setMessages(prev => prev.filter(msg => msg.id !== messageId));
+      }
+    } catch (error) {
+      console.error('Failed to send message:', error);
       toast({
         title: "Message not sent",
-        description: "Please try again",
+        description: "An error occurred. Please try again.",
         variant: "destructive"
       });
+    } finally {
+      setIsSending(false);
     }
-    
-    setMessage('');
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -157,7 +174,6 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
     }
   };
 
-  // Play notification sound
   const playNotificationSound = () => {
     try {
       const audio = new Audio('/notification.mp3');
@@ -167,10 +183,8 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
     }
   };
 
-  // Get recipient status
   const recipientStatus = userStatuses[recipientId] || 'offline';
 
-  // Render attachment
   const renderAttachment = (attachment: Attachment) => {
     if (attachment.type === 'image') {
       return (
@@ -207,7 +221,6 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl shadow-subtle border border-slate-100 overflow-hidden">
-      {/* Chat header */}
       <div className="p-4 border-b border-slate-100 flex items-center">
         <div className="w-10 h-10 rounded-full bg-medilink-secondary flex items-center justify-center text-medilink-primary font-medium">
           {recipientName.charAt(0)}
@@ -221,7 +234,6 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
         </div>
       </div>
       
-      {/* Messages */}
       <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
@@ -276,7 +288,6 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
         )}
       </ScrollArea>
       
-      {/* Message input */}
       <div className="p-4 border-t border-slate-100">
         <div className="flex items-center space-x-2">
           <FileShareButton recipientId={recipientId} />
@@ -287,16 +298,20 @@ const ChatInterface = ({ recipientId, recipientName }: ChatInterfaceProps) => {
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyPress}
             className="h-10 rounded-full border-slate-200"
-            disabled={isLoading}
+            disabled={isLoading || isSending}
           />
           
           <Button 
             onClick={handleSendMessage}
             className="rounded-full h-10 w-10 p-0 flex-shrink-0 bg-medilink-primary hover:bg-medilink-primary/90"
-            disabled={!message.trim() || isLoading}
+            disabled={!message.trim() || isLoading || isSending}
             type="button"
           >
-            <Send className="h-5 w-5" />
+            {isSending ? (
+              <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <Send className="h-5 w-5" />
+            )}
           </Button>
         </div>
       </div>

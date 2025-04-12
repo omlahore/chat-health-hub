@@ -1,3 +1,4 @@
+
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './AuthContext';
@@ -46,6 +47,7 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
   const [notifications, setNotifications] = useState<{ id: string; title: string; message: string; read: boolean; timestamp: string }[]>([]);
   const { user } = useAuth();
   const { toast } = useToast();
+  const [availableSlots, setAvailableSlots] = useState<any[]>([]); // Add this line to fix error
 
   // Initialize with mock session data for demo purposes
   useEffect(() => {
